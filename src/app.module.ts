@@ -2,13 +2,17 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
-import { UsersModule } from './users/users.module';
-import { TelemetryModule } from './telemetry/telemetry.module';
 import { HistoryModule } from './history/history.module';
-import { DashboardModule } from './dashboard/dashboard.module';
+import { UserspeaakerModule } from './userspeaaker/userspeaaker.module';
+import { UserrolModule } from './userrol/userrol.module';
+import { UserModule } from './user/user.module';
+import { SpeakerModule } from './speaker/speaker.module';
+import { PositionModule } from './position/position.module';
+import { BatteryModule } from './battery/battery.module';
+import { ConsumeModule } from './consume/consume.module';
 
 @Module({
-  imports: [AuthModule, UsersModule, TelemetryModule, HistoryModule, DashboardModule],
+  imports: [AuthModule, HistoryModule, BatteryModule, ConsumeModule, PositionModule, SpeakerModule, UserModule, UserrolModule, UserspeaakerModule],
   controllers: [AppController],
   providers: [AppService],
 })

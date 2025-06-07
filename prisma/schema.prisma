@@ -1,0 +1,81 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Speaker {
+  id       Int      @id @default(autoincrement())
+  position Position @relation(fields: [positionId], references: [id])
+  positionId Int
+  battery  Battery  @relation(fields: [batteryId], references: [id])
+  batteryId Int
+  state    Boolean
+  history  History[]
+  userspeakers Userspeaker[]
+
+  // otros campos omitidos por claridad
+}
+
+model User {
+  id       Int      @id @default(autoincrement())
+  username String
+  email    String
+  password String
+  userRol  UserRol? @relation(fields: [userRolId], references: [id])
+  userRolId Int?
+  userspeakers Userspeaker[]
+}
+
+model Position {
+  id          Int       @id @default(autoincrement())
+  description String
+  speakers    Speaker[]
+}
+
+model Battery {
+  id      Int      @id @default(autoincrement())
+  consume String
+  speakers Speaker[]
+}
+
+model Consume {
+  id                    Int       @id @default(autoincrement())
+  energetic_consume     String
+  actual_electric_currrent String
+  potence               String
+  histories             History[]
+}
+
+model UserRol {
+  id          Int     @id @default(autoincrement())
+  description String
+  users       User[]
+}
+
+model History {
+  id       Int      @id @default(autoincrement())
+  speaker  Speaker  @relation(fields: [speakerId], references: [id])
+  speakerId Int
+  consume  Consume  @relation(fields: [consumeId], references: [id])
+  consumeId Int
+  date     DateTime
+}
+
+model Userspeaker {
+  id        Int     @id @default(autoincrement())
+  user      User    @relation(fields: [userId], references: [id])
+  userId    Int
+  speaker   Speaker @relation(fields: [speakerId], references: [id])
+  speakerId Int
+}
