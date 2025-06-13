@@ -8,45 +8,46 @@ import * as bcrypt from "bcrypt"
 
 @Injectable()
 export class AuthService {
-    constructor(private jwtService: JwtService, readonly prisma: PrismaService) {}
+    constructor(private jwtService: JwtService, readonly prisma: PrismaService) { }
     async validateUser(usernameOrEmail: string, password: string): Promise<ValidationDto | undefined> {
         const user = await this.prisma.user.findFirst({
-            where :{
+            where: {
                 OR: [
-                    {username: usernameOrEmail},
-                    {email: usernameOrEmail}
-                ], 
+                    { username: usernameOrEmail },
+                    { email: usernameOrEmail }
+                ],
                 userRol: {
                 },
             }
-        }); 
+        });
 
         if (!user) {
             return undefined;
         }
-        if (await bcrypt.compare(password, user.password)){
-            const {password, ...result} = user;
+        if (await bcrypt.compare(password, user.password)) {
+            const { password, ...result } = user;
             return result
         }
-        return undefined 
+        return undefined
     }
     async login(data: LoginDto) {
         const user = await this.prisma.user.findFirst({
             where: {
                 OR: [
-                    {username: data.usernameOrEmail},
-                    {email: data.usernameOrEmail}
+                    { username: data.usernameOrEmail },
+                    { email: data.usernameOrEmail },
+                    { password: data.password}
                 ],
             },
             include: {
-                userRol:{
+                userRol: {
                 }
             }
         });
         if (!user) {
             throw new UnauthorizedException("Credenciales invalidas");
         }
-    
+
         const payload = {
             username: user.username,
         };
@@ -54,14 +55,14 @@ export class AuthService {
             access_token: this.jwtService.sign(payload),
         }
     }
-      async create(createUserDto: CreateUserDto) {
-  const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
+    async create(createUserDto: CreateUserDto) {
+        const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
 
-  return this.prisma.user.create({
-    data: {
-      ...createUserDto,
-      password: hashedPassword,
-    },
-  });
-}
+        return this.prisma.user.create({
+            data: {
+                ...createUserDto,
+                password: hashedPassword,
+            },
+        });
     }
+}
