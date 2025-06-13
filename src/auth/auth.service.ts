@@ -29,32 +29,38 @@ export class AuthService {
             return result
         }
         return undefined
-    }
-    async login(data: LoginDto) {
-        const user = await this.prisma.user.findFirst({
-            where: {
-                OR: [
-                    { username: data.usernameOrEmail },
-                    { email: data.usernameOrEmail },
-                    { password: data.password}
-                ],
-            },
-            include: {
-                userRol: {
-                }
-            }
-        });
-        if (!user) {
-            throw new UnauthorizedException("Credenciales invalidas");
-        }
+    }async login(data: LoginDto) {
+    // Busca el usuario en la base de datos
+    const user = await this.prisma.user.findFirst({ 
+        where: {
+            OR: [
+                { username: data.usernameOrEmail },
+                { email: data.usernameOrEmail },
+            ],
+        },
+        include: {
+            userRol: {},
+        },
+    });
 
-        const payload = {
-            username: user.username,
-        };
-        return {
-            access_token: this.jwtService.sign(payload),
-        }
+    if (!user) {
+        throw new UnauthorizedException("Credenciales invalidas.");
     }
+
+    // Verifica que la password sea correcta
+    const passwordValida = await bcrypt.compare(data.password, user.password);
+    if (!passwordValida) {
+        throw new UnauthorizedException("Credenciales invalidas.");
+    }
+
+    // Carga el payload para el JWT
+    const payload = {
+        username: user.username,
+    };
+    return {
+        access_token: this.jwtService.sign(payload),
+    };
+}
     async create(createUserDto: CreateUserDto) {
         const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
 
