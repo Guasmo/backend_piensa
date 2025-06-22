@@ -8,7 +8,12 @@ export class UserrolService {
   constructor (private readonly prisma: PrismaService){}
       
         create(createUserrolrDto: CreateUserrolDto ) {
-          return this.prisma.userRol.create({data:createUserrolrDto});
+          return this.prisma.userRol.create({
+            data: {
+              ...createUserrolrDto,
+              description: createUserrolrDto.description ?? '',
+            },
+          });
         }
       
         findAll() {

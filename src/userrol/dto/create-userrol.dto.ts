@@ -1,4 +1,5 @@
 export class CreateUserrolDto {
     id:number;
-    description: string;
+    name: string;
+    description?: string;
 }

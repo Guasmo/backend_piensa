@@ -59,6 +59,7 @@ model Consume {
 
 model UserRol {
   id          Int     @id @default(autoincrement())
+  name        String  @unique   // <--- campo único para búsqueda por nombre
   description String
   users       User[]
 }
