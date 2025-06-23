@@ -56,6 +56,7 @@ export class AuthService {
       throw new UnauthorizedException('Credenciales inválidas.');
     }
 
+    
     const payload = {
       sub: user.id,
       username: user.username,
