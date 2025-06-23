@@ -5,10 +5,11 @@ import { ValidationDto } from './dto/Validation.dto';
 import { LoginDto } from './dto/Login.dto';
 import { CreateUserDto } from 'src/user/dto/create-user.dto';
 import * as bcrypt from 'bcrypt';
+import { RegisterDto } from './dto/Register.dto';
 
 @Injectable()
 export class AuthService {
-  constructor(private jwtService: JwtService, readonly prisma: PrismaService) {}
+  constructor(private jwtService: JwtService, readonly prisma: PrismaService) { }
 
   async validateUser(usernameOrEmail: string, password: string): Promise<ValidationDto | undefined> {
     const user = await this.prisma.user.findFirst({
@@ -66,19 +67,20 @@ export class AuthService {
     };
   }
 
-  async create(createUserDto: CreateUserDto) {
-    const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
+
+  async create(RegisterDto: RegisterDto) {
+    const hashedPassword = await bcrypt.hash(RegisterDto.password, 10);
 
     const defaultRole = await this.prisma.userRol.findFirst({
       where: { id: 1 }, // Buscar por descripción
     });
 
     if (!defaultRole) {
-      throw new Error('Rol "USER" no existe.');
+      throw new Error('Rol "user" no existe.');
     }
 
     // Exclude 'id' from createUserDto to avoid passing it explicitly
-    const { id, ...userData } = createUserDto as any;
+    const { id, ...userData } = RegisterDto as any;
 
     return this.prisma.user.create({
       data: {
