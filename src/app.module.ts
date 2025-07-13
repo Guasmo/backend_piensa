@@ -2,18 +2,17 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
-import { HistoryModule } from './history/history.module';
-import { UserspeaakerModule } from './userspeaaker/userspeaaker.module';
-import { UserrolModule } from './userrol/userrol.module';
 import { UserModule } from './user/user.module';
-import { SpeakerModule } from './speaker/speaker.module';
-import { PositionModule } from './position/position.module';
-import { BatteryModule } from './battery/battery.module';
-import { ConsumeModule } from './consume/consume.module';
+import { SpeakersModule } from './speakers/speakers.module';
+import { UsageSessionsModule } from './usage-sessions/usage-sessions.module';
+import { EnergyMeasurementsModule } from './energy-measurements/energy-measurements.module';
+import { HistoryModule } from './history/history.module';
+import { UserspeakersModule } from './userspeakers/userspeakers.module';
+import { RealtimeGateway } from './realtime/realtime.gateway';
 
 @Module({
-  imports: [AuthModule, HistoryModule, BatteryModule, ConsumeModule, PositionModule, SpeakerModule, UserModule, UserrolModule, UserspeaakerModule],
+  imports: [AuthModule, UserModule, SpeakersModule, UsageSessionsModule, EnergyMeasurementsModule, HistoryModule, UserspeakersModule],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, RealtimeGateway],
 })
 export class AppModule {}

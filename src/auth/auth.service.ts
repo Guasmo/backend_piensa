@@ -1,96 +1,109 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { ValidationDto } from './dto/Validation.dto';
 import { LoginDto } from './dto/Login.dto';
 import { CreateUserDto } from 'src/user/dto/create-user.dto';
 import * as bcrypt from 'bcrypt';
-import { RegisterDto } from './dto/Register.dto';
+import { Role } from 'generated/prisma';
+import { JwtPayload } from './interfaces';
+import { RefreshDto } from './dto/refreshDto';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class AuthService {
-  constructor(private jwtService: JwtService, readonly prisma: PrismaService) { }
+    constructor(
+      private readonly jwtService: JwtService,
+      private readonly prisma: PrismaService,
+      private readonly configService: ConfigService
+    ) { }
 
-  async validateUser(usernameOrEmail: string, password: string): Promise<ValidationDto | undefined> {
-    const user = await this.prisma.user.findFirst({
-      where: {
-        OR: [
-          { username: usernameOrEmail },
-          { email: usernameOrEmail },
-        ],
-      },
-      include: {
-        userRol: true,
+    async register(CreateUserDto: CreateUserDto) {
+      try {
+        const { password, ...userDto } = CreateUserDto;
+        const hashedPassword = await bcrypt.hash(CreateUserDto.password, 10);
+
+        const user = await this.prisma.user.create({
+          data: {
+            ...userDto,
+            password: hashedPassword,
+            role: Role.USER, // Asignar un rol por defecto
+          },
+        });
+
+        return user;
+
+      } catch (error) {
+          throw new Error(`Error al crear el usuario: ${error.message}`);
+      }
+    }
+
+  async login(loginDto: LoginDto) {
+    const { password, usernameOrEmail } = loginDto;
+
+    const user = await this.prisma.user.findUnique({
+      where: { email: usernameOrEmail },
+      select: {
+        email: true,
+        password: true,
+        id: true,
+        role: true,
       },
     });
+    if (!user) throw new UnauthorizedException("Credentials are not valid");
+    if (!bcrypt.compareSync(password, user.password))
+      throw new UnauthorizedException("Credentials are not valid");
 
-    if (!user) return undefined;
 
-    if (await bcrypt.compare(password, user.password)) {
-      const { password, ...result } = user;
-      return result;
-    }
 
-    return undefined;
-  }
+    const roleName = user.role;
 
-  async login(data: LoginDto) {
-    const user = await this.prisma.user.findFirst({
-      where: {
-        OR: [
-          { username: data.usernameOrEmail },
-          { email: data.usernameOrEmail },
-        ],
-      },
-      include: {
-        userRol: true,
-      },
-    });
-
-    if (!user) {
-      throw new UnauthorizedException('Credenciales inválidas.');
-    }
-
-    const passwordValida = await bcrypt.compare(data.password, user.password);
-    if (!passwordValida) {
-      throw new UnauthorizedException('Credenciales inválidas.');
-    }
-
-    
-    const payload = {
-      sub: user.id,
-      username: user.username,
-      role: user.userRol?.id ?? '1',
-    };
+    const accessToken = this.getJwtToken(
+      { id: user.id.toString(), role: roleName },
+      { expiresIn: "2d" },
+    );
+    const refreshToken = this.getJwtToken({ id: user.id.toString() }, { expiresIn: "7d" });
 
     return {
-      access_token: this.jwtService.sign(payload),
+      userId: user.id,
+      roleName,
+      accessToken,
+      refreshToken,
     };
   }
 
 
-  async create(RegisterDto: RegisterDto) {
-    const hashedPassword = await bcrypt.hash(RegisterDto.password, 10);
+  private getJwtToken(payload: JwtPayload, options?: { expiresIn: string }) {
+    const token = this.jwtService.sign(payload, options);
+    return token;
+  }
 
-    const defaultRole = await this.prisma.userRol.findFirst({
-      where: { id: 1 }, // Buscar por descripción
-    });
+  async refreshToken(refreshDto: RefreshDto) {
+    try {
+      const payload = this.jwtService.verify(refreshDto.refreshToken, {
+        secret: this.configService.get<string>("JWT_SECRET"),
+      });
+      const user = await this.prisma.user.findUnique({
+        where: { id: payload.id },
+        select: { email: true, password: true, id: true },
+      });
 
-    if (!defaultRole) {
-      throw new Error('Rol "user" no existe.');
+      if (!user) throw new UnauthorizedException("Invalid refresh token");
+      const accessToken = this.getJwtToken(
+        { id: user.id.toString() },
+        { expiresIn: "2d" },
+      );
+      const refreshToken = this.getJwtToken(
+        { id: user.id.toString() },
+        { expiresIn: "7d" },
+      );
+
+      return {
+        ...user,
+        accessToken,
+        refreshToken,
+      };
+    } catch (error) {
+      throw error;
     }
-
-    // Exclude 'id' from createUserDto to avoid passing it explicitly
-    const { id, ...userData } = RegisterDto as any;
-
-    return this.prisma.user.create({
-      data: {
-        ...userData,
-        password: hashedPassword,
-        userRol: {
-          connect: { id: defaultRole.id },
-        },
-      },
-    });
   }
 }

@@ -7,10 +7,9 @@ import { LoginDto } from './dto/Login.dto';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  
   @Post('register')
-  create(@Body() createUserDto: CreateUserDto) {
-    return this.authService.create(createUserDto);
+  create(@Body() CreateUserDto: CreateUserDto) {
+    return this.authService.register(CreateUserDto);
   }
     @Post('login')
   login(@Body() LoginDto: LoginDto) {

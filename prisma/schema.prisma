@@ -14,69 +14,136 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Speaker {
-  id       Int      @id @default(autoincrement())
-  position Position @relation(fields: [positionId], references: [id])
-  positionId Int
-  battery  Battery  @relation(fields: [batteryId], references: [id])
-  batteryId Int
-  state    Boolean
-  history  History[]
-  userspeakers Userspeaker[]
+// Enum para roles de usuario
+enum Role {
+  ADMIN
+  USER
+}
 
-  // otros campos omitidos por claridad
+// Enum para estados de sesión
+enum SessionStatus {
+  ACTIVE
+  COMPLETED
+  INTERRUPTED
+}
+
+model Speaker {
+  id                 Int      @id @default(autoincrement())
+  name               String
+  position           String
+  state              Boolean  @default(false) // true = encendido, false = apagado
+  batteryPercentage  Decimal  @db.Decimal(5, 2) // Porcentaje actual de batería (0.00-100.00)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  // Relaciones
+  usageSessions      UsageSession[]
+  histories          History[]
+  userspeakers       Userspeaker[]
+
+  @@map("speakers")
 }
 
 model User {
-  id       Int      @id @default(autoincrement())
-  username String
-  email    String
-  password String
-  userRol  UserRol? @relation(fields: [userRolId], references: [id])
-  userRolId Int?
-  userspeakers Userspeaker[]
+  id        Int      @id @default(autoincrement())
+  username  String
+  email     String   @unique
+  password  String
+  role      Role     @default(USER)
+  createdAt DateTime @default(now())
+
+  // Relaciones
+  usageSessions UsageSession[]
+  histories     History[]
+  userspeakers  Userspeaker[]
+
+  @@map("users")
 }
 
-model Position {
-  id          Int       @id @default(autoincrement())
-  description String
-  speakers    Speaker[]
+// Tabla para registrar sesiones de uso (cuando se enciende/apaga un parlante)
+model UsageSession {
+  id                        Int           @id @default(autoincrement())
+  speakerId                 Int
+  userId                    Int
+  startTime                 DateTime      @default(now())
+  endTime                   DateTime?     // NULL mientras esté en uso
+  initialBatteryPercentage  Decimal?      @db.Decimal(5, 2) // Batería al iniciar sesión
+  finalBatteryPercentage    Decimal?      @db.Decimal(5, 2) // Batería al terminar sesión
+  speakerName               String?       // Nombre del parlante al momento de uso
+  speakerPosition           String?       // Posición del parlante al momento de uso
+  status                    SessionStatus @default(ACTIVE)
+
+  // Relaciones
+  speaker           Speaker             @relation(fields: [speakerId], references: [id])
+  user              User                @relation(fields: [userId], references: [id])
+  energyMeasurements EnergyMeasurement[]
+  history           History?
+
+  @@map("usage_sessions")
 }
 
-model Battery {
-  id      Int      @id @default(autoincrement())
-  consume String
-  speakers Speaker[]
+// Tabla para registrar mediciones en tiempo real durante el uso
+model EnergyMeasurement {
+  id                Int      @id @default(autoincrement())
+  usageSessionId    Int
+  voltageHours      Decimal  @db.Decimal(10, 4) // Voltios por hora (vH)
+  wattsHours        Decimal  @db.Decimal(10, 4) // Watts por hora (wH)
+  ampereHours       Decimal  @db.Decimal(10, 4) // Amperios por hora (aH)
+  batteryPercentage Decimal  @db.Decimal(5, 2)  // Porcentaje de batería en este momento
+  recordedAt        DateTime @default(now())
+
+  // Relaciones
+  usageSession UsageSession @relation(fields: [usageSessionId], references: [id])
+
+  @@map("energy_measurements")
 }
 
-model Consume {
-  id                    Int       @id @default(autoincrement())
-  energetic_consume     String
-  actual_electric_currrent String
-  potence               String
-  histories             History[]
-}
-
-model UserRol {
-  id          Int     @id @default(autoincrement())
-  name        String  @unique   // <--- campo único para búsqueda por nombre
-  description String
-  users       User[]
-}
-
+// Tabla de historial (resumen final de cada sesión)
 model History {
-  id       Int      @id @default(autoincrement())
-  speaker  Speaker  @relation(fields: [speakerId], references: [id])
-  speakerId Int
-  consume  Consume  @relation(fields: [consumeId], references: [id])
-  consumeId Int
-  date     DateTime
+  id                        Int      @id @default(autoincrement())
+  usageSessionId            Int      @unique
+  speakerId                 Int
+  speakerName               String
+  speakerPosition           String
+  userId                    Int
+  startDate                 DateTime
+  endDate                   DateTime
+  durationMinutes           Int?     // Duración total en minutos
+
+  // Promedios calculados
+  avgVoltageHours           Decimal  @db.Decimal(10, 4) // Promedio de vH durante la sesión
+  avgWattsHours             Decimal  @db.Decimal(10, 4) // Promedio de wH durante la sesión
+  avgAmpereHours            Decimal  @db.Decimal(10, 4) // Promedio de aH durante la sesión
+
+  // Totales calculados
+  totalVoltageHours         Decimal  @db.Decimal(10, 4) // Total de vH consumidos
+  totalWattsHours           Decimal  @db.Decimal(10, 4) // Total de wH consumidos
+  totalAmpereHours          Decimal  @db.Decimal(10, 4) // Total de aH consumidos
+
+  // Información de batería
+  initialBatteryPercentage  Decimal  @db.Decimal(5, 2)
+  finalBatteryPercentage    Decimal  @db.Decimal(5, 2)
+  batteryConsumed           Decimal  @db.Decimal(5, 2) // Porcentaje de batería consumida
+
+  createdAt                 DateTime @default(now())
+
+  // Relaciones
+  usageSession UsageSession @relation(fields: [usageSessionId], references: [id])
+  speaker      Speaker      @relation(fields: [speakerId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@map("history")
 }
 
 model Userspeaker {
-  id        Int     @id @default(autoincrement())
-  user      User    @relation(fields: [userId], references: [id])
-  userId    Int
-  speaker   Speaker @relation(fields: [speakerId], references: [id])
-  speakerId Int
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  speakerId  Int
+  assignedAt DateTime @default(now())
+
+  // Relaciones
+  user    User    @relation(fields: [userId], references: [id])
+  speaker Speaker @relation(fields: [speakerId], references: [id])
+
+  @@map("userspeakers")
 }
