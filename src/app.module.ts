@@ -8,11 +8,22 @@ import { UsageSessionsModule } from './usage-sessions/usage-sessions.module';
 import { EnergyMeasurementsModule } from './energy-measurements/energy-measurements.module';
 import { HistoryModule } from './history/history.module';
 import { UserspeakersModule } from './userspeakers/userspeakers.module';
-import { RealtimeGateway } from './realtime/realtime.gateway';
+import { PrismaModule } from './prisma/prisma.module';
+import { RealtimeModule } from './realtime/realtime.module';
 
 @Module({
-  imports: [AuthModule, UserModule, SpeakersModule, UsageSessionsModule, EnergyMeasurementsModule, HistoryModule, UserspeakersModule],
-  controllers: [AppController],
-  providers: [AppService, RealtimeGateway],
+  imports: [
+    PrismaModule, 
+    AuthModule, 
+    UserModule, 
+    SpeakersModule, 
+    UsageSessionsModule, 
+    EnergyMeasurementsModule, 
+    HistoryModule, 
+    UserspeakersModule, 
+    RealtimeModule
+  ],
+  controllers: [AppController], // CORRECTO
+  providers: [AppService],      // CORRECTO - Solo debe estar AppService aquí
 })
 export class AppModule {}
