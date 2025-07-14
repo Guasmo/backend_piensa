@@ -4,7 +4,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { LoginDto } from './dto/Login.dto';
 import { CreateUserDto } from 'src/user/dto/create-user.dto';
 import * as bcrypt from 'bcrypt';
-import { Role } from 'generated/prisma';
+import { Role } from '@prisma/client';
 import { JwtPayload } from './interfaces';
 import { RefreshDto } from './dto/refreshDto';
 import { ConfigService } from '@nestjs/config';

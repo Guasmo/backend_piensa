@@ -1,5 +1,5 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { Role } from "generated/prisma";
+import { Role } from "@prisma/client";
 import { 
   IsEmail, 
   IsEnum, 
@@ -15,6 +15,10 @@ export class CreateUserDto {
   @ApiProperty()
   @IsEmail()
   email: string;
+
+  @ApiProperty()
+  @IsString() 
+  phone?: string;
 
   @ApiProperty()
   @IsString()
