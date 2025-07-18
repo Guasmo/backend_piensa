@@ -10,6 +10,7 @@ import { HistoryModule } from './history/history.module';
 import { UserspeakersModule } from './userspeakers/userspeakers.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RealtimeModule } from './realtime/realtime.module';
+import { Esp32DataModule } from './esp32-data/esp32-data.module';
 
 @Module({
   imports: [
@@ -21,7 +22,8 @@ import { RealtimeModule } from './realtime/realtime.module';
     EnergyMeasurementsModule, 
     HistoryModule, 
     UserspeakersModule, 
-    RealtimeModule
+    RealtimeModule, 
+    Esp32DataModule
   ],
   controllers: [AppController], // CORRECTO
   providers: [AppService],      // CORRECTO - Solo debe estar AppService aquí
