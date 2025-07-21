@@ -9,7 +9,6 @@ import { EnergyMeasurementsModule } from './energy-measurements/energy-measureme
 import { HistoryModule } from './history/history.module';
 import { UserspeakersModule } from './userspeakers/userspeakers.module';
 import { PrismaModule } from './prisma/prisma.module';
-import { RealtimeModule } from './realtime/realtime.module';
 import { Esp32DataModule } from './esp32-data/esp32-data.module';
 
 @Module({
@@ -22,7 +21,6 @@ import { Esp32DataModule } from './esp32-data/esp32-data.module';
     EnergyMeasurementsModule, 
     HistoryModule, 
     UserspeakersModule, 
-    RealtimeModule, 
     Esp32DataModule
   ],
   controllers: [AppController], // CORRECTO

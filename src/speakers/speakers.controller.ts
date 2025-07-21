@@ -15,55 +15,12 @@ import {
   InternalServerErrorException
 } from '@nestjs/common';
 import { SpeakersService } from './speakers.service';
-import { IsString, IsNotEmpty, IsOptional, IsBoolean, IsNumber, Min, Max } from 'class-validator';
-
-// DTOs para validación
-export class CreateSpeakerDto {
-  @IsString()
-  @IsNotEmpty()
-  name: string;
-
-  @IsString()
-  @IsNotEmpty()
-  position: string;
-
-  @IsOptional()
-  @IsBoolean()
-  state?: boolean;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  @Max(100)
-  batteryPercentage?: number;
-}
-
-export class UpdateSpeakerDto {
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  name?: string;
-
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  position?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  state?: boolean;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  @Max(100)
-  batteryPercentage?: number;
-}
+import { CreateSpeakerDto } from './dto/create-speakers-dto';
+import { UpdateSpeakerDto } from './dto/update-speakers-dto';
 
 @Controller('speakers')
 export class SpeakersController {
   constructor(private readonly speakersService: SpeakersService) {}
-
   // Obtener todos los parlantes con filtros opcionales
   @Get()
   async findAll(

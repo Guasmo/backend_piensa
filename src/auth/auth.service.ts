@@ -40,31 +40,45 @@ export class AuthService {
   async login(loginDto: LoginDto) {
     const { password, usernameOrEmail } = loginDto;
 
-    const user = await this.prisma.user.findUnique({
-      where: { email: usernameOrEmail },
+    // --- CAMBIO 1: Buscar por email O por username ---
+    const user = await this.prisma.user.findFirst({
+      where: {
+        OR: [
+          { email: usernameOrEmail },
+          { username: usernameOrEmail }
+        ],
+      },
       select: {
-        email: true,
-        password: true,
         id: true,
+        password: true,
+        email: true,
+        username: true, // <-- AÑADIDO: Necesitamos el username para el token
         role: true,
       },
     });
-    if (!user) throw new UnauthorizedException("Credentials are not valid");
-    if (!bcrypt.compareSync(password, user.password))
-      throw new UnauthorizedException("Credentials are not valid");
 
+    if (!user) {
+      throw new UnauthorizedException("Las credenciales no son válidas");
+    }
 
+    if (!bcrypt.compareSync(password, user.password)) {
+      throw new UnauthorizedException("Las credenciales no son válidas");
+    }
 
     const roleName = user.role;
+    
+    // --- CAMBIO 2: Añadir el username al payload del token ---
+    const payload = { id: user.id.toString(), role: roleName, username: user.username };
 
     const accessToken = this.getJwtToken(
-      { id: user.id.toString(), role: roleName },
+      payload,
       { expiresIn: "2d" },
     );
     const refreshToken = this.getJwtToken({ id: user.id.toString() }, { expiresIn: "7d" });
 
     return {
       userId: user.id,
+      username: user.username, // <-- AÑADIDO: Devolvemos el username en la respuesta
       roleName,
       accessToken,
       refreshToken,
@@ -76,7 +90,6 @@ export class AuthService {
     const token = this.jwtService.sign(payload, options);
     return token;
   }
-
   async refreshToken(refreshDto: RefreshDto) {
     try {
       const payload = this.jwtService.verify(refreshDto.refreshToken, {

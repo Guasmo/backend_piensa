@@ -1,13 +1,9 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateSpeakerDto, UpdateSpeakerDto } from './speakers.controller';
+import { CreateSpeakerDto } from './dto/create-speakers-dto';
+import { UpdateSpeakerDto } from './dto/update-speakers-dto';
 import { Decimal } from '@prisma/client/runtime/library';
-
-interface SpeakerFilters {
-  state?: boolean;
-  position?: string;
-  batteryLow?: number;
-}
+import { SpeakerFilters } from './dto/speakers-Dto';
 
 @Injectable()
 export class SpeakersService {

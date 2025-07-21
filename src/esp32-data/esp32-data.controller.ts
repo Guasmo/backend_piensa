@@ -14,78 +14,10 @@ import {
   HttpStatus
 } from '@nestjs/common';
 import { Esp32DataService } from './esp32-data.service';
-import { IsNumber, IsOptional, IsNotEmpty, Min, Max, IsInt } from 'class-validator';
+import { Esp32DataDto } from './dto/Esp32Data-dto';
+import { StartSessionDto } from './dto/StartSession-dto';
+import { EndSessionDto } from './dto/EndSession-dto';
 
-// DTOs con validaciones
-export class Esp32DataDto {
-  @IsNumber()
-  @IsNotEmpty()
-  timestamp: number;        // Tiempo desde inicio en segundos
-
-  @IsNumber()
-  @IsNotEmpty()
-  @Min(0)
-  current_mA: number;       // Corriente en mA
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  voltage_V?: number;       // Voltaje en V (opcional)
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  power_mW?: number;        // Potencia en mW (opcional)
-
-  @IsNumber()
-  @IsNotEmpty()
-  @Min(0)
-  total_consumed_mAh: number; // Total consumido en mAh
-
-  @IsInt()
-  @IsNotEmpty()
-  @Min(0)
-  sample_index: number;     // Índice de muestra
-
-  @IsNumber()
-  @Min(0)
-  @Max(100)
-  battery_remaining_percent: number; // Porcentaje de batería restante
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  speaker_id?: number;      // ID del parlante (opcional)
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  usage_session_id?: number; // ID de sesión de uso (opcional)
-}
-
-export class StartSessionDto {
-  @IsInt()
-  @IsNotEmpty()
-  @Min(1)
-  speakerId: number;
-
-  @IsInt()
-  @IsNotEmpty()
-  @Min(1)
-  userId: number;
-
-  @IsNumber()
-  @Min(0)
-  @Max(100)
-  initialBatteryPercentage: number;
-}
-
-export class EndSessionDto {
-  @IsNumber()
-  @Min(0)
-  @Max(100)
-  finalBatteryPercentage: number;
-}
 
 @Controller('esp32-data')
 export class Esp32DataController {

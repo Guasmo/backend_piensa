@@ -1,14 +1,12 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { Esp32DataDto } from './esp32-data.controller';
 import { Decimal } from '@prisma/client/runtime/library';
+import { Esp32DataDto } from './dto/Esp32Data-dto';
 
 @Injectable()
 export class Esp32DataService {
   constructor(private prisma: PrismaService) {}
 
-  // --- MÉTODO CORREGIDO ---
-  // Guardar medición de energía mejorado
   async saveEnergyMeasurement(data: Esp32DataDto) {
     try {
       // ✅ FIX: Se calcula el consumo para el intervalo de 10 segundos, no para el tiempo total.
