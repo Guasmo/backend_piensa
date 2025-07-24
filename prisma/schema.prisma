@@ -1,9 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -81,15 +78,22 @@ model UsageSession {
   @@map("usage_sessions")
 }
 
-// Tabla para registrar mediciones en tiempo real durante el uso
+// ✅ CORRECCIÓN: Tabla actualizada para coincidir con los datos del ESP32
 model EnergyMeasurement {
-  id                Int      @id @default(autoincrement())
-  usageSessionId    Int
-  voltageHours      Decimal  @db.Decimal(10, 4) // Voltios por hora (vH)
-  wattsHours        Decimal  @db.Decimal(10, 4) // Watts por hora (wH)
-  ampereHours       Decimal  @db.Decimal(10, 4) // Amperios por hora (aH)
-  batteryPercentage Decimal  @db.Decimal(5, 2)  // Porcentaje de batería en este momento
-  recordedAt        DateTime @default(now())
+  id                      Int      @id @default(autoincrement())
+  usageSessionId          Int
+  
+  // ✅ Campos que coinciden con el ESP32
+  timestamp               Int      // Tiempo desde inicio en segundos
+  current_mA              Decimal  @db.Decimal(10, 4) // Corriente en miliamperios
+  voltage_V               Decimal  @db.Decimal(10, 4) // Voltaje en voltios
+  power_mW                Decimal  @db.Decimal(10, 4) // Potencia en milivatios
+  battery_remaining_percent Decimal @db.Decimal(5, 2) // Porcentaje de batería restante
+  speaker_id              Int      // ID del parlante
+  total_consumed_mAh      Decimal  @db.Decimal(10, 4) // Total consumido en mAh
+  sample_index            Int      // Índice de muestra
+  
+  recordedAt              DateTime @default(now())
 
   // Relaciones
   usageSession UsageSession @relation(fields: [usageSessionId], references: [id])
@@ -109,15 +113,15 @@ model History {
   endDate                   DateTime
   durationMinutes           Int?     // Duración total en minutos
 
-  // Promedios calculados
-  avgVoltageHours           Decimal  @db.Decimal(10, 4) // Promedio de vH durante la sesión
-  avgWattsHours             Decimal  @db.Decimal(10, 4) // Promedio de wH durante la sesión
-  avgAmpereHours            Decimal  @db.Decimal(10, 4) // Promedio de aH durante la sesión
-
-  // Totales calculados
-  totalVoltageHours         Decimal  @db.Decimal(10, 4) // Total de vH consumidos
-  totalWattsHours           Decimal  @db.Decimal(10, 4) // Total de wH consumidos
-  totalAmpereHours          Decimal  @db.Decimal(10, 4) // Total de aH consumidos
+  // ✅ CORRECCIÓN: Campos actualizados para coincidir con mediciones reales
+  avgCurrent_mA             Decimal  @db.Decimal(10, 4) // Promedio de corriente en mA
+  avgVoltage_V              Decimal  @db.Decimal(10, 4) // Promedio de voltaje en V
+  avgPower_mW               Decimal  @db.Decimal(10, 4) // Promedio de potencia en mW
+  
+  totalCurrent_mA           Decimal  @db.Decimal(10, 4) // Total de corriente consumida
+  totalVoltage_V            Decimal  @db.Decimal(10, 4) // Total de voltaje usado
+  totalPower_mW             Decimal  @db.Decimal(10, 4) // Total de potencia consumida
+  totalConsumed_mAh         Decimal  @db.Decimal(10, 4) // Total consumido en mAh
 
   // Información de batería
   initialBatteryPercentage  Decimal  @db.Decimal(5, 2)

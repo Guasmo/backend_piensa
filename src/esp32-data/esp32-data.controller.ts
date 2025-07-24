@@ -18,15 +18,14 @@ import { Esp32DataDto } from './dto/Esp32Data-dto';
 import { StartSessionDto } from './dto/StartSession-dto';
 import { EndSessionDto } from './dto/EndSession-dto';
 
-
 @Controller('esp32-data')
 export class Esp32DataController {
   constructor(private readonly esp32DataService: Esp32DataService) {}
 
-  // Endpoint para recibir datos del ESP32
-  @Post('energy-measurement')
+  // ✅ NUEVO: Endpoint para recibir datos en tiempo real (NO los guarda en DB)
+  @Post('realtime-data')
   @UsePipes(new ValidationPipe({ transform: true }))
-  async receiveEnergyData(@Body() data: Esp32DataDto) {
+  async receiveRealtimeData(@Body() data: Esp32DataDto) {
     try {
       // Validar que si hay session_id, la sesión esté activa
       if (data.usage_session_id) {
@@ -36,11 +35,12 @@ export class Esp32DataController {
         }
       }
 
-      const result = await this.esp32DataService.saveEnergyMeasurement(data);
+      // Solo almacenar en memoria temporal y actualizar batería del parlante
+      const result = await this.esp32DataService.updateRealtimeData(data);
       
       return {
         success: true,
-        message: 'Data received successfully',
+        message: 'Realtime data received successfully',
         data: result,
         timestamp: new Date().toISOString()
       };
@@ -51,16 +51,39 @@ export class Esp32DataController {
       
       throw new InternalServerErrorException({
         success: false,
-        message: 'Error saving energy measurement',
+        message: 'Error processing realtime data',
         error: error.message
       });
     }
   }
 
-  // --- MÉTODO MODIFICADO ---
+  // ✅ NUEVO: Endpoint para obtener datos en tiempo real de una sesión
+  @Get('realtime-data/:sessionId')
+  async getRealtimeData(@Param('sessionId', ParseIntPipe) sessionId: number) {
+    try {
+      const data = await this.esp32DataService.getRealtimeSessionData(sessionId);
+      
+      return {
+        success: true,
+        data,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+
+      throw new InternalServerErrorException({
+        success: false,
+        message: 'Error fetching realtime data',
+        error: error.message
+      });
+    }
+  }
+
   // Endpoint para iniciar una sesión de uso
   @Post('start-session')
-  @HttpCode(HttpStatus.CREATED) // Se añade para ser explícito con el código 201
+  @HttpCode(HttpStatus.CREATED)
   @UsePipes(new ValidationPipe({ transform: true }))
   async startUsageSession(@Body() data: StartSessionDto) {
     try {
@@ -76,9 +99,6 @@ export class Esp32DataController {
         data.initialBatteryPercentage
       );
 
-      // ✅ FIX: Se ajusta la estructura del objeto de respuesta.
-      // El objeto "session" ahora está dentro de una propiedad "data"
-      // y solo se devuelve el ID y la hora de inicio, que es lo necesario.
       return {
         success: true,
         message: 'Session started successfully',
@@ -101,7 +121,7 @@ export class Esp32DataController {
     }
   }
 
-  // Endpoint para terminar una sesión de uso
+  // ✅ MODIFICADO: Endpoint para terminar sesión (ahora guarda el resumen)
   @Post('end-session/:sessionId')
   @UsePipes(new ValidationPipe({ transform: true }))
   async endUsageSession(
@@ -109,7 +129,7 @@ export class Esp32DataController {
     @Body() data: EndSessionDto
   ) {
     try {
-      const result = await this.esp32DataService.endUsageSession(
+      const result = await this.esp32DataService.endUsageSessionWithSummary(
         sessionId,
         data.finalBatteryPercentage
       );
@@ -133,31 +153,7 @@ export class Esp32DataController {
     }
   }
 
-  // Endpoint para obtener datos en tiempo real
-  @Get('current-session/:sessionId')
-  async getCurrentSessionData(@Param('sessionId', ParseIntPipe) sessionId: number) {
-    try {
-      const data = await this.esp32DataService.getCurrentSessionData(sessionId);
-      
-      return {
-        success: true,
-        data,
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-
-      throw new InternalServerErrorException({
-        success: false,
-        message: 'Error fetching session data',
-        error: error.message
-      });
-    }
-  }
-
-  // NUEVO: Endpoint para verificar sesiones activas de un parlante
+  // Endpoint para verificar sesiones activas de un parlante
   @Get('active-session/speaker/:speakerId')
   async getActiveSpeakerSession(@Param('speakerId', ParseIntPipe) speakerId: number) {
     try {
@@ -178,7 +174,7 @@ export class Esp32DataController {
     }
   }
 
-  // NUEVO: Endpoint para obtener el estado actual de un parlante
+  // Endpoint para obtener el estado actual de un parlante
   @Get('speaker-status/:speakerId')
   async getSpeakerStatus(@Param('speakerId', ParseIntPipe) speakerId: number) {
     try {
@@ -202,7 +198,7 @@ export class Esp32DataController {
     }
   }
 
-  // NUEVO: Endpoint para forzar el final de todas las sesiones activas (útil para mantenimiento)
+  // Endpoint para forzar el final de todas las sesiones activas
   @Post('force-end-all-sessions')
   async forceEndAllActiveSessions() {
     try {
@@ -223,31 +219,7 @@ export class Esp32DataController {
     }
   }
 
-  // NUEVO: Endpoint para obtener estadísticas en tiempo real
-  @Get('session-stats/:sessionId')
-  async getSessionStats(@Param('sessionId', ParseIntPipe) sessionId: number) {
-    try {
-      const stats = await this.esp32DataService.getSessionStatistics(sessionId);
-      
-      return {
-        success: true,
-        stats,
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-
-      throw new InternalServerErrorException({
-        success: false,
-        message: 'Error fetching session statistics',
-        error: error.message
-      });
-    }
-  }
-
-  // NUEVO: Health check endpoint
+  // Health check endpoint
   @Get('health')
   async healthCheck() {
     try {

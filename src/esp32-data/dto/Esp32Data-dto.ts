@@ -7,7 +7,7 @@ import {
     Min 
 } from "class-validator";
 
-// DTOs con validaciones
+// DTO ajustado para coincidir con los datos del ESP32
 export class Esp32DataDto {
   @IsNumber()
   @IsNotEmpty()
@@ -18,15 +18,30 @@ export class Esp32DataDto {
   @Min(0)
   current_mA: number;       // Corriente en mA
 
-  @IsOptional()
   @IsNumber()
+  @IsNotEmpty()
   @Min(0)
-  voltage_V?: number;       // Voltaje en V (opcional)
+  voltage_V: number;        // Voltaje en V
 
-  @IsOptional()
+  @IsNumber()
+  @IsNotEmpty()
+  @Min(0)
+  power_mW: number;         // Potencia en mW
+
   @IsNumber()
   @Min(0)
-  power_mW?: number;        // Potencia en mW (opcional)
+  @Max(100)
+  battery_remaining_percent: number; // Porcentaje de batería restante
+
+  @IsInt()
+  @IsNotEmpty()
+  @Min(1)
+  speaker_id: number;       // ID del parlante
+
+  @IsInt()
+  @IsNotEmpty()
+  @Min(1)
+  usage_session_id: number; // ID de sesión de uso
 
   @IsNumber()
   @IsNotEmpty()
@@ -37,19 +52,4 @@ export class Esp32DataDto {
   @IsNotEmpty()
   @Min(0)
   sample_index: number;     // Índice de muestra
-
-  @IsNumber()
-  @Min(0)
-  @Max(100)
-  battery_remaining_percent: number; // Porcentaje de batería restante
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  speaker_id?: number;      // ID del parlante (opcional)
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  usage_session_id?: number; // ID de sesión de uso (opcional)
 }
