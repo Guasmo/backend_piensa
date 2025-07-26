@@ -79,7 +79,7 @@ export class SpeakersController {
   }
 
   // Crear nuevo parlante
-  @Auth(Role.ADMIN)
+  @Auth(Role.ADMIN, Role.SUPERADMIN)
   @Post()
   @UsePipes(new ValidationPipe({ transform: true }))
   async create(@Body() createSpeakerDto: CreateSpeakerDto) {
@@ -102,7 +102,7 @@ export class SpeakersController {
   }
 
   // Actualizar parlante
-  @Auth(Role.ADMIN)
+  @Auth(Role.ADMIN, Role.SUPERADMIN)
   @Put(':id')
   @UsePipes(new ValidationPipe({ transform: true }))
   async update(
@@ -132,6 +132,7 @@ export class SpeakersController {
   }
 
   // Eliminar parlante
+  @Auth(Role.ADMIN, Role.SUPERADMIN)
   @Delete(':id')
   async remove(@Param('id', ParseIntPipe) id: number) {
     try {
