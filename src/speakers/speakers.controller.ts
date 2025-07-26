@@ -17,6 +17,8 @@ import {
 import { SpeakersService } from './speakers.service';
 import { CreateSpeakerDto } from './dto/create-speakers-dto';
 import { UpdateSpeakerDto } from './dto/update-speakers-dto';
+import { Auth } from 'src/auth/decorators/auth.decorator';
+import { Role } from '@prisma/client';
 
 @Controller('speakers')
 export class SpeakersController {
@@ -77,6 +79,7 @@ export class SpeakersController {
   }
 
   // Crear nuevo parlante
+  @Auth(Role.ADMIN)
   @Post()
   @UsePipes(new ValidationPipe({ transform: true }))
   async create(@Body() createSpeakerDto: CreateSpeakerDto) {
@@ -99,6 +102,7 @@ export class SpeakersController {
   }
 
   // Actualizar parlante
+  @Auth(Role.ADMIN)
   @Put(':id')
   @UsePipes(new ValidationPipe({ transform: true }))
   async update(

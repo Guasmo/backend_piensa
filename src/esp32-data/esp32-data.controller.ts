@@ -22,40 +22,6 @@ import { EndSessionDto } from './dto/EndSession-dto';
 export class Esp32DataController {
   constructor(private readonly esp32DataService: Esp32DataService) {}
 
-  // ✅ NUEVO: Endpoint para recibir datos en tiempo real (NO los guarda en DB)
-  @Post('realtime-data')
-  @UsePipes(new ValidationPipe({ transform: true }))
-  async receiveRealtimeData(@Body() data: Esp32DataDto) {
-    try {
-      // Validar que si hay session_id, la sesión esté activa
-      if (data.usage_session_id) {
-        const session = await this.esp32DataService.getSessionById(data.usage_session_id);
-        if (!session || session.status !== 'ACTIVE') {
-          throw new BadRequestException('Invalid or inactive session');
-        }
-      }
-
-      // Solo almacenar en memoria temporal y actualizar batería del parlante
-      const result = await this.esp32DataService.updateRealtimeData(data);
-      
-      return {
-        success: true,
-        message: 'Realtime data received successfully',
-        data: result,
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-      
-      throw new InternalServerErrorException({
-        success: false,
-        message: 'Error processing realtime data',
-        error: error.message
-      });
-    }
-  }
 
   // ✅ NUEVO: Endpoint para obtener datos en tiempo real de una sesión
   @Get('realtime-data/:sessionId')

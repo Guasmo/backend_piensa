@@ -20,7 +20,7 @@ export class AuthService {
     async register(CreateUserDto: CreateUserDto) {
       try {
         const { password, ...userDto } = CreateUserDto;
-        const hashedPassword = await bcrypt.hash(CreateUserDto.password, 10);
+        const hashedPassword = await bcrypt.hash(password, 10);
 
         const user = await this.prisma.user.create({
           data: {
@@ -40,7 +40,6 @@ export class AuthService {
   async login(loginDto: LoginDto) {
     const { password, usernameOrEmail } = loginDto;
 
-    // --- CAMBIO 1: Buscar por email O por username ---
     const user = await this.prisma.user.findFirst({
       where: {
         OR: [
@@ -56,22 +55,17 @@ export class AuthService {
         role: true,
       },
     });
-
     if (!user) {
       throw new UnauthorizedException("Las credenciales no son válidas");
     }
-
     if (!bcrypt.compareSync(password, user.password)) {
       throw new UnauthorizedException("Las credenciales no son válidas");
     }
 
     const roleName = user.role;
-    
-    // --- CAMBIO 2: Añadir el username al payload del token ---
-    const payload = { id: user.id.toString(), role: roleName, username: user.username };
-
+  
     const accessToken = this.getJwtToken(
-      payload,
+      { id: user.id.toString(), role: roleName},
       { expiresIn: "2d" },
     );
     const refreshToken = this.getJwtToken({ id: user.id.toString() }, { expiresIn: "7d" });
