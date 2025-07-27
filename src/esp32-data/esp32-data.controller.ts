@@ -15,18 +15,20 @@ import {
 } from '@nestjs/common';
 import { Esp32DataService } from './esp32-data.service';
 import { Esp32DataDto } from './dto/Esp32Data-dto';
+import { MonitorDataDto } from './dto/MonitorData-dto';
 import { StartSessionDto } from './dto/StartSession-dto';
 import { EndSessionDto } from './dto/EndSession-dto';
 
-@Controller('esp32-data')
+@Controller('api/energy')
 export class Esp32DataController {
   constructor(private readonly esp32DataService: Esp32DataService) {}
 
-
-  // ✅ NUEVO: Endpoint para obtener datos en tiempo real de una sesión
+  // ⚡ ENDPOINT PRINCIPAL ÚNICO - Obtener datos desde caché para frontend cada 2s
   @Get('realtime-data/:sessionId')
   async getRealtimeData(@Param('sessionId', ParseIntPipe) sessionId: number) {
     try {
+      console.log(`📊 Frontend solicitando datos cada 2s - sesión ${sessionId}`);
+      
       const data = await this.esp32DataService.getRealtimeSessionData(sessionId);
       
       return {
@@ -35,25 +37,120 @@ export class Esp32DataController {
         timestamp: new Date().toISOString()
       };
     } catch (error) {
+      console.error(`❌ Error obteniendo datos desde caché:`, error.message);
+      
       if (error instanceof NotFoundException) {
         throw error;
       }
 
       throw new InternalServerErrorException({
         success: false,
-        message: 'Error fetching realtime data',
+        message: 'Error fetching realtime session data',
         error: error.message
       });
     }
   }
 
-  // Endpoint para iniciar una sesión de uso
+  // ⚡ Endpoint para datos de monitoreo (caché temporal - NO guardar en BD)
+  @Post('monitor-data')
+  @UsePipes(new ValidationPipe({ transform: true }))
+  async receiveMonitorData(@Body() data: MonitorDataDto) {
+    try {
+      console.log('🖥️ Datos de monitoreo recibidos (caché temporal):', {
+        sessionId: data.sessionId,
+        timestamp: data.timestamp,
+        current: data.current_mA,
+        voltage: data.voltage_V,
+        power: data.power_mW,
+        battery: data.battery_remaining_percent
+      });
+
+      // Validar sesión activa
+      const session = await this.esp32DataService.getSessionById(data.sessionId);
+      if (!session || session.status !== 'ACTIVE') {
+        throw new BadRequestException('Invalid or inactive session');
+      }
+
+      // Almacenar en caché temporal (NO en base de datos)
+      await this.esp32DataService.updateRealtimeCache(data);
+      
+      return {
+        success: true,
+        message: 'Monitor data cached successfully',
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      console.error('❌ Error procesando datos de monitoreo:', error.message);
+      
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      
+      throw new InternalServerErrorException({
+        success: false,
+        message: 'Error caching monitor data',
+        error: error.message
+      });
+    }
+  }
+
+  // 🔋 Endpoint para datos de batería (guardar en BD cada 30s)
+  @Post('realtime-data')
+  @UsePipes(new ValidationPipe({ transform: true }))
+  async receiveRealtimeData(@Body() data: Esp32DataDto) {
+    try {
+      console.log('🔋 Actualización de batería recibida (BD):', {
+        sessionId: data.usage_session_id,
+        speakerId: data.speaker_id,
+        battery: data.battery_remaining_percent,
+        consumed: data.total_consumed_mAh
+      });
+
+      // Validar sesión activa
+      if (data.usage_session_id && data.usage_session_id > 0) {
+        const session = await this.esp32DataService.getSessionById(data.usage_session_id);
+        if (!session || session.status !== 'ACTIVE') {
+          throw new BadRequestException('Invalid or inactive session');
+        }
+      }
+
+      // Solo actualizar batería del parlante (NO guardar mediciones)
+      const result = await this.esp32DataService.updateSpeakerBattery(data);
+      
+      return {
+        success: true,
+        message: 'Battery updated successfully',
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      console.error('❌ Error actualizando batería:', error.message);
+      
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      
+      throw new InternalServerErrorException({
+        success: false,
+        message: 'Error updating battery',
+        error: error.message
+      });
+    }
+  }
+
+  // 🚀 Iniciar sesión de monitoreo
   @Post('start-session')
   @HttpCode(HttpStatus.CREATED)
   @UsePipes(new ValidationPipe({ transform: true }))
   async startUsageSession(@Body() data: StartSessionDto) {
     try {
-      // Verificar si ya hay una sesión activa para este parlante
+      console.log('🚀 Iniciando sesión optimizada:', {
+        speakerId: data.speakerId,
+        userId: data.userId,
+        initialBattery: data.initialBatteryPercentage,
+        mode: data.mode || 'ultra_optimized'
+      });
+
+      // Verificar sesión activa existente
       const activeSession = await this.esp32DataService.getActiveSession(data.speakerId);
       if (activeSession) {
         throw new BadRequestException('Speaker already has an active session');
@@ -65,16 +162,20 @@ export class Esp32DataController {
         data.initialBatteryPercentage
       );
 
+      // Inicializar caché para esta sesión
+      await this.esp32DataService.initializeRealtimeCache(session.id);
+
       return {
         success: true,
-        message: 'Session started successfully',
+        message: 'Session started successfully (ultra optimized mode)',
         data: {
           id: session.id,
           startTime: session.startTime
-        },
-        timestamp: new Date().toISOString()
+        }
       };
     } catch (error) {
+      console.error('❌ Error iniciando sesión:', error.message);
+      
       if (error instanceof BadRequestException || error instanceof NotFoundException) {
         throw error;
       }
@@ -87,26 +188,53 @@ export class Esp32DataController {
     }
   }
 
-  // ✅ MODIFICADO: Endpoint para terminar sesión (ahora guarda el resumen)
+  // 🔚 Finalizar sesión con historial completo
   @Post('end-session/:sessionId')
   @UsePipes(new ValidationPipe({ transform: true }))
   async endUsageSession(
     @Param('sessionId', ParseIntPipe) sessionId: number,
-    @Body() data: EndSessionDto
+    @Body() data: EndSessionDto & {
+      totalMeasurementsSent?: number;
+      totalConsumed_mAh?: number;
+      sessionDurationSeconds?: number;
+      avgCurrent_mA?: number;
+      avgVoltage_V?: number;
+      avgPower_mW?: number;
+      peakPower_mW?: number;
+      mode?: string;
+    }
   ) {
     try {
-      const result = await this.esp32DataService.endUsageSessionWithSummary(
+      console.log(`🔚 Terminando sesión ultra optimizada ${sessionId}:`, {
+        finalBattery: data.finalBatteryPercentage,
+        totalMeasurements: data.totalMeasurementsSent || 0,
+        totalConsumed: data.totalConsumed_mAh || 0,
+        duration: data.sessionDurationSeconds || 0,
+        mode: data.mode || 'ultra_optimized'
+      });
+      
+      const result = await this.esp32DataService.endUsageSession(
         sessionId,
-        data.finalBatteryPercentage
+        data.finalBatteryPercentage,
+        {
+          totalMeasurementsSent: data.totalMeasurementsSent,
+          totalConsumed_mAh: data.totalConsumed_mAh,
+          sessionDurationSeconds: data.sessionDurationSeconds,
+          avgCurrent_mA: data.avgCurrent_mA,
+          avgVoltage_V: data.avgVoltage_V,
+          avgPower_mW: data.avgPower_mW,
+          peakPower_mW: data.peakPower_mW
+        }
       );
 
       return {
         success: true,
-        message: 'Session ended successfully',
-        data: result,
-        timestamp: new Date().toISOString()
+        message: 'Session ended successfully and saved to history',
+        data: result
       };
     } catch (error) {
+      console.error(`❌ Error terminando sesión ${sessionId}:`, error.message);
+      
       if (error instanceof NotFoundException) {
         throw error;
       }
@@ -119,7 +247,7 @@ export class Esp32DataController {
     }
   }
 
-  // Endpoint para verificar sesiones activas de un parlante
+  // 🔍 Verificar sesión activa de un parlante
   @Get('active-session/speaker/:speakerId')
   async getActiveSpeakerSession(@Param('speakerId', ParseIntPipe) speakerId: number) {
     try {
@@ -140,15 +268,15 @@ export class Esp32DataController {
     }
   }
 
-  // Endpoint para obtener el estado actual de un parlante
-  @Get('speaker-status/:speakerId')
-  async getSpeakerStatus(@Param('speakerId', ParseIntPipe) speakerId: number) {
+  // 📈 Obtener estadísticas de sesión
+  @Get('session-stats/:sessionId')
+  async getSessionStats(@Param('sessionId', ParseIntPipe) sessionId: number) {
     try {
-      const status = await this.esp32DataService.getSpeakerStatus(speakerId);
+      const stats = await this.esp32DataService.getSessionStatistics(sessionId);
       
       return {
         success: true,
-        status,
+        stats,
         timestamp: new Date().toISOString()
       };
     } catch (error) {
@@ -158,49 +286,245 @@ export class Esp32DataController {
 
       throw new InternalServerErrorException({
         success: false,
-        message: 'Error fetching speaker status',
+        message: 'Error fetching session statistics',
         error: error.message
       });
     }
   }
 
-  // Endpoint para forzar el final de todas las sesiones activas
-  @Post('force-end-all-sessions')
-  async forceEndAllActiveSessions() {
+  // 🧹 Limpiar caché de sesiones inactivas (mantenimiento)
+  @Post('cleanup-cache')
+  async cleanupCache() {
     try {
-      const result = await this.esp32DataService.forceEndAllActiveSessions();
+      const cleaned = await this.esp32DataService.cleanupInactiveSessionsCache();
       
       return {
         success: true,
-        message: `${result.count} sessions were force-ended`,
-        data: result,
+        message: `Cleaned ${cleaned} inactive session caches`,
         timestamp: new Date().toISOString()
       };
     } catch (error) {
       throw new InternalServerErrorException({
         success: false,
-        message: 'Error force-ending sessions',
+        message: 'Error cleaning up cache',
         error: error.message
       });
     }
   }
 
-  // Health check endpoint
+  // 📊 Obtener información del caché (debugging)
+  @Get('cache-info')
+  async getCacheInfo() {
+    try {
+      const cacheInfo = this.esp32DataService.getCacheInfo();
+      
+      return {
+        success: true,
+        cache: cacheInfo,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new InternalServerErrorException({
+        success: false,
+        message: 'Error fetching cache info',
+        error: error.message
+      });
+    }
+  }
+
+  // 🏥 Health check
   @Get('health')
   async healthCheck() {
     try {
       const dbHealth = await this.esp32DataService.checkDatabaseHealth();
+      const cacheHealth = await this.esp32DataService.checkCacheHealth();
       
       return {
         success: true,
         status: 'healthy',
-        database: dbHealth ? 'connected' : 'disconnected',
+        services: {
+          database: dbHealth ? 'connected' : 'disconnected',
+          cache: cacheHealth ? 'active' : 'inactive'
+        },
         timestamp: new Date().toISOString()
       };
     } catch (error) {
       throw new InternalServerErrorException({
         success: false,
         status: 'unhealthy',
+        error: error.message
+      });
+    }
+  }
+
+  // 🔄 Reiniciar caché para sesión específica
+  @Post('reset-cache/:sessionId')
+  async resetSessionCache(@Param('sessionId', ParseIntPipe) sessionId: number) {
+    try {
+      // Limpiar caché existente
+      await this.esp32DataService.clearRealtimeCache(sessionId);
+      
+      // Reinicializar caché
+      await this.esp32DataService.initializeRealtimeCache(sessionId);
+      
+      return {
+        success: true,
+        message: `Cache reset for session ${sessionId}`,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new InternalServerErrorException({
+        success: false,
+        message: 'Error resetting session cache',
+        error: error.message
+      });
+    }
+  }
+
+  // 📋 Obtener sesión por ID
+  @Get('session/:sessionId')
+  async getSession(@Param('sessionId', ParseIntPipe) sessionId: number) {
+    try {
+      const session = await this.esp32DataService.getSessionById(sessionId);
+      
+      if (!session) {
+        throw new NotFoundException('Session not found');
+      }
+      
+      return {
+        success: true,
+        session,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+
+      throw new InternalServerErrorException({
+        success: false,
+        message: 'Error fetching session',
+        error: error.message
+      });
+    }
+  }
+
+  // 🔍 Verificar si una sesión tiene datos en caché
+  @Get('has-cache/:sessionId')
+  async hasSessionCache(@Param('sessionId', ParseIntPipe) sessionId: number) {
+    try {
+      const cacheInfo = this.esp32DataService.getCacheInfo();
+      const hasCache = cacheInfo.sessions.some(s => s.sessionId === sessionId);
+      
+      return {
+        success: true,
+        hasCache,
+        sessionId,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new InternalServerErrorException({
+        success: false,
+        message: 'Error checking session cache',
+        error: error.message
+      });
+    }
+  }
+
+  // 🚀 Endpoint de prueba para verificar conectividad
+  @Get('ping')
+  async ping() {
+    return {
+      success: true,
+      message: 'ESP32 Data Controller is running',
+      mode: 'ultra_optimized',
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  // 📊 Estadísticas generales del sistema
+  @Get('system-stats')
+  async getSystemStats() {
+    try {
+      const cacheInfo = this.esp32DataService.getCacheInfo();
+      const dbHealth = await this.esp32DataService.checkDatabaseHealth();
+      const cacheHealth = await this.esp32DataService.checkCacheHealth();
+      
+      return {
+        success: true,
+        stats: {
+          activeSessions: cacheInfo.totalSessions,
+          sessions: cacheInfo.sessions,
+          database: dbHealth ? 'healthy' : 'unhealthy',
+          cache: cacheHealth ? 'healthy' : 'unhealthy',
+          mode: 'ultra_optimized',
+          features: [
+            'Fetching cada 2 segundos',
+            'Endpoint único para frontend',
+            'Caché temporal en memoria',
+            'BD solo para batería cada 30s',
+            'Historial completo al finalizar'
+          ]
+        },
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new InternalServerErrorException({
+        success: false,
+        message: 'Error fetching system stats',
+        error: error.message
+      });
+    }
+  }
+}
+
+// Health check general del sistema
+@Controller('api')
+export class HealthController {
+  constructor(private readonly esp32DataService: Esp32DataService) {}
+
+  @Get('health')
+  async systemHealth() {
+    try {
+      const dbHealth = await this.esp32DataService.checkDatabaseHealth();
+      const cacheHealth = await this.esp32DataService.checkCacheHealth();
+      
+      return {
+        success: true,
+        status: 'healthy',
+        services: {
+          database: dbHealth ? 'up' : 'down',
+          cache: cacheHealth ? 'up' : 'down',
+          api: 'up'
+        },
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new InternalServerErrorException({
+        success: false,
+        status: 'unhealthy',
+        error: error.message
+      });
+    }
+  }
+
+  @Get('status')
+  async getStatus() {
+    try {
+      const cacheInfo = this.esp32DataService.getCacheInfo();
+      
+      return {
+        success: true,
+        status: 'operational',
+        mode: 'ultra_optimized',
+        activeSessions: cacheInfo.totalSessions,
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new InternalServerErrorException({
+        success: false,
+        status: 'error',
         error: error.message
       });
     }

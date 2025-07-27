@@ -9,7 +9,6 @@ import { Role } from '@prisma/client';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  @Auth(Role.SUPERADMIN)
   @Post('register')
   create(@Body() CreateUserDto: CreateUserDto) {
     return this.authService.register(CreateUserDto);

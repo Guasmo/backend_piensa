@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -63,14 +60,17 @@ model UsageSession {
   speakerId                 Int
   userId                    Int
   startTime                 DateTime      @default(now())
-  endTime                   DateTime?     // NULL mientras esté en uso
-  initialBatteryPercentage  Decimal?      @db.Decimal(5, 2) // Batería al iniciar sesión
-  finalBatteryPercentage    Decimal?      @db.Decimal(5, 2) // Batería al terminar sesión
-  speakerName               String?       // Nombre del parlante al momento de uso
-  speakerPosition           String?       // Posición del parlante al momento de uso
+  endTime                   DateTime?
+  initialBatteryPercentage  Decimal?      @db.Decimal(5, 2)
+  finalBatteryPercentage    Decimal?      @db.Decimal(5, 2)
+  speakerName               String?
+  speakerPosition           String?
   status                    SessionStatus @default(ACTIVE)
-
-  // Relaciones
+  
+  // Add this field for additional metadata
+  metadata                  Json?         // Store additional session metadata
+  
+  // Keep existing relations
   speaker           Speaker             @relation(fields: [speakerId], references: [id])
   user              User                @relation(fields: [userId], references: [id])
   energyMeasurements EnergyMeasurement[]
@@ -79,24 +79,20 @@ model UsageSession {
   @@map("usage_sessions")
 }
 
-// ✅ CORRECCIÓN: Tabla actualizada para coincidir con los datos del ESP32
+// Tabla para registrar mediciones en tiempo real durante el uso
 model EnergyMeasurement {
-  id                      Int      @id @default(autoincrement())
-  usageSessionId          Int
+  id                Int      @id @default(autoincrement())
+  usageSessionId    Int
+  voltageHours      Decimal  @db.Decimal(10, 4) // ⚡ CAMPO AGREGADO
+  wattsHours        Decimal  @db.Decimal(10, 4)
+  ampereHours       Decimal  @db.Decimal(10, 4)
+  batteryPercentage Decimal  @db.Decimal(5, 2)
+  recordedAt        DateTime @default(now())
   
-  // ✅ Campos que coinciden con el ESP32
-  timestamp               Int      // Tiempo desde inicio en segundos
-  current_mA              Decimal  @db.Decimal(10, 4) // Corriente en miliamperios
-  voltage_V               Decimal  @db.Decimal(10, 4) // Voltaje en voltios
-  power_mW                Decimal  @db.Decimal(10, 4) // Potencia en milivatios
-  battery_remaining_percent Decimal @db.Decimal(5, 2) // Porcentaje de batería restante
-  speaker_id              Int      // ID del parlante
-  total_consumed_mAh      Decimal  @db.Decimal(10, 4) // Total consumido en mAh
-  sample_index            Int      // Índice de muestra
+  // Add this field for raw ESP32 data
+  rawData           Json?    // Store raw ESP32 data as JSON
   
-  recordedAt              DateTime @default(now())
-
-  // Relaciones
+  // Keep existing relations
   usageSession UsageSession @relation(fields: [usageSessionId], references: [id])
 
   @@map("energy_measurements")
@@ -112,26 +108,22 @@ model History {
   userId                    Int
   startDate                 DateTime
   endDate                   DateTime
-  durationMinutes           Int?     // Duración total en minutos
-
-  // ✅ CORRECCIÓN: Campos actualizados para coincidir con mediciones reales
-  avgCurrent_mA             Decimal  @db.Decimal(10, 4) // Promedio de corriente en mA
-  avgVoltage_V              Decimal  @db.Decimal(10, 4) // Promedio de voltaje en V
-  avgPower_mW               Decimal  @db.Decimal(10, 4) // Promedio de potencia en mW
-  
-  totalCurrent_mA           Decimal  @db.Decimal(10, 4) // Total de corriente consumida
-  totalVoltage_V            Decimal  @db.Decimal(10, 4) // Total de voltaje usado
-  totalPower_mW             Decimal  @db.Decimal(10, 4) // Total de potencia consumida
-  totalConsumed_mAh         Decimal  @db.Decimal(10, 4) // Total consumido en mAh
-
-  // Información de batería
+  durationMinutes           Int?
+  avgVoltageHours           Decimal  @db.Decimal(10, 4)
+  avgWattsHours             Decimal  @db.Decimal(10, 4)
+  avgAmpereHours            Decimal  @db.Decimal(10, 4)
+  totalVoltageHours         Decimal  @db.Decimal(10, 4)
+  totalWattsHours           Decimal  @db.Decimal(10, 4)
+  totalAmpereHours          Decimal  @db.Decimal(10, 4)
   initialBatteryPercentage  Decimal  @db.Decimal(5, 2)
   finalBatteryPercentage    Decimal  @db.Decimal(5, 2)
-  batteryConsumed           Decimal  @db.Decimal(5, 2) // Porcentaje de batería consumida
-
+  batteryConsumed           Decimal  @db.Decimal(5, 2)
   createdAt                 DateTime @default(now())
-
-  // Relaciones
+  
+  // Add this field for ESP32 specific data
+  esp32Data                 Json?    // Store ESP32 specific data as JSON
+  
+  // Keep existing relations
   usageSession UsageSession @relation(fields: [usageSessionId], references: [id])
   speaker      Speaker      @relation(fields: [speakerId], references: [id])
   user         User         @relation(fields: [userId], references: [id])

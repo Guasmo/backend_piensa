@@ -2,115 +2,146 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { Decimal } from '@prisma/client/runtime/library';
 import { Esp32DataDto } from './dto/Esp32Data-dto';
+import { MonitorDataDto } from './dto/MonitorData-dto';
 
-// ✅ NUEVO: Interface para datos en tiempo real
+// ⚡ Interface optimizada para caché temporal con datos completos
 interface RealtimeSessionData {
   sessionId: number;
   speakerId: number;
-  startTime: Date;
-  measurements: Esp32DataDto[];
-  currentStats: {
-    avgCurrent: number;
-    avgVoltage: number;
-    avgPower: number;
-    totalConsumed: number;
+  speakerName: string;
+  userId: number;
+  status: string;
+  startTime: string;
+  durationMinutes: number;
+  initialBatteryPercentage: number;
+  
+  // Datos más recientes del ESP32
+  latestData: {
+    timestamp: number;
+    current_mA: number;
+    voltage_V: number;
+    power_mW: number;
+    battery_remaining_percent: number;
+    total_consumed_mAh: number;
+    sample_index: number;
+  };
+  
+  // Estadísticas acumuladas
+  statistics: {
+    avgCurrent_mA: number;
+    avgVoltage_V: number;
+    avgPower_mW: number;
+    peakPower_mW: number;
     measurementCount: number;
+    totalConsumed_mAh: number;
     durationSeconds: number;
   };
+  
+  lastUpdated: Date;
+  created: Date;
 }
 
 @Injectable()
 export class Esp32DataService {
-  // ✅ NUEVO: Almacenamiento en memoria para datos en tiempo real
-  private realtimeData: Map<number, RealtimeSessionData> = new Map();
-  
   constructor(private prisma: PrismaService) {}
 
-  // ✅ NUEVO: Actualizar datos en tiempo real (solo en memoria)
-  async updateRealtimeData(data: Esp32DataDto) {
-    try {
-      console.log('📊 Datos en tiempo real recibidos del ESP32:', data);
+  // 🗄️ CACHÉ OPTIMIZADO - Un solo Map para datos completos
+  private realtimeDataCache = new Map<number, RealtimeSessionData>();
 
-      // Verificar que la sesión existe y está activa
-      const session = await this.prisma.usageSession.findFirst({
-        where: {
-          id: data.usage_session_id,
-          status: 'ACTIVE'
+  // ⚡ Inicializar caché para nueva sesión
+  async initializeRealtimeCache(sessionId: number): Promise<void> {
+    const session = await this.prisma.usageSession.findUnique({
+      where: { id: sessionId },
+      include: { speaker: true }
+    });
+
+    if (session) {
+      this.realtimeDataCache.set(sessionId, {
+        sessionId,
+        speakerId: session.speakerId,
+        speakerName: session.speakerName || session.speaker.name,
+        userId: session.userId,
+        status: session.status,
+        startTime: session.startTime.toISOString(),
+        durationMinutes: 0,
+        initialBatteryPercentage: Number(session.initialBatteryPercentage || 100),
+        
+        latestData: {
+          timestamp: 0,
+          current_mA: 0,
+          voltage_V: 0,
+          power_mW: 0,
+          battery_remaining_percent: Number(session.initialBatteryPercentage || 100),
+          total_consumed_mAh: 0,
+          sample_index: 0
         },
-        include: {
-          speaker: true
-        }
+        
+        statistics: {
+          avgCurrent_mA: 0,
+          avgVoltage_V: 0,
+          avgPower_mW: 0,
+          peakPower_mW: 0,
+          measurementCount: 0,
+          totalConsumed_mAh: 0,
+          durationSeconds: 0
+        },
+        
+        lastUpdated: new Date(),
+        created: new Date()
       });
 
-      if (!session) {
-        throw new BadRequestException(`Session ${data.usage_session_id} not found or not active`);
-      }
-
-      // Verificar que el speaker_id coincide
-      if (session.speakerId !== data.speaker_id) {
-        throw new BadRequestException('Speaker ID mismatch');
-      }
-
-      // Actualizar solo el porcentaje de batería del parlante en DB
-      await this.prisma.speaker.update({
-        where: { id: data.speaker_id },
-        data: { 
-          batteryPercentage: new Decimal(data.battery_remaining_percent),
-          updatedAt: new Date()
-        }
-      });
-
-      // Obtener o crear datos en tiempo real para esta sesión
-      let sessionData = this.realtimeData.get(data.usage_session_id);
-      if (!sessionData) {
-        sessionData = {
-          sessionId: data.usage_session_id,
-          speakerId: data.speaker_id,
-          startTime: session.startTime,
-          measurements: [],
-          currentStats: {
-            avgCurrent: 0,
-            avgVoltage: 0,
-            avgPower: 0,
-            totalConsumed: 0,
-            measurementCount: 0,
-            durationSeconds: 0
-          }
-        };
-      }
-
-      // Agregar nueva medición
-      sessionData.measurements.push(data);
-      
-      // Mantener solo las últimas 100 mediciones en memoria
-      if (sessionData.measurements.length > 100) {
-        sessionData.measurements = sessionData.measurements.slice(-100);
-      }
-
-      // Calcular estadísticas actuales
-      sessionData.currentStats = this.calculateRealtimeStats(sessionData.measurements, sessionData.startTime);
-      
-      // Actualizar en memoria
-      this.realtimeData.set(data.usage_session_id, sessionData);
-
-      console.log(`✅ Datos en tiempo real actualizados para sesión ${data.usage_session_id}`);
-      
-      return {
-        sessionId: data.usage_session_id,
-        speakerId: data.speaker_id,
-        batteryPercent: data.battery_remaining_percent,
-        measurementCount: sessionData.measurements.length,
-        currentStats: sessionData.currentStats
-      };
-
-    } catch (error) {
-      console.error('❌ Error actualizando datos en tiempo real:', error);
-      throw error;
+      console.log(`🗄️ Caché optimizado inicializado para sesión ${sessionId}`);
     }
   }
 
-  // ✅ NUEVO: Obtener datos en tiempo real de una sesión
+  // 🔄 Actualizar caché con datos del ESP32 (llamado desde monitor-data)
+  async updateRealtimeCache(data: MonitorDataDto): Promise<void> {
+    const cache = this.realtimeDataCache.get(data.sessionId);
+    
+    if (!cache) {
+      console.warn(`⚠️ Caché no encontrado para sesión ${data.sessionId}, inicializando...`);
+      await this.initializeRealtimeCache(data.sessionId);
+      return this.updateRealtimeCache(data);
+    }
+
+    // Calcular duración desde el inicio
+    const sessionStart = new Date(cache.startTime);
+    const now = new Date();
+    const durationMinutes = Math.floor((now.getTime() - sessionStart.getTime()) / 60000);
+    const durationSeconds = Math.floor((now.getTime() - sessionStart.getTime()) / 1000);
+
+    // Actualizar datos más recientes
+    cache.latestData = {
+      timestamp: data.timestamp,
+      current_mA: data.current_mA,
+      voltage_V: data.voltage_V,
+      power_mW: data.power_mW,
+      battery_remaining_percent: data.battery_remaining_percent,
+      total_consumed_mAh: data.total_consumed_mAh,
+      sample_index: data.sample_index
+    };
+
+    // Actualizar estadísticas desde datos del ESP32
+    cache.statistics = {
+      avgCurrent_mA: data.avgCurrent_mA || 0,
+      avgVoltage_V: data.avgVoltage_V || 0,
+      avgPower_mW: data.avgPower_mW || 0,
+      peakPower_mW: data.peakPower_mW || 0,
+      measurementCount: data.sample_index,
+      totalConsumed_mAh: data.total_consumed_mAh,
+      durationSeconds: data.timestamp
+    };
+
+    // Actualizar info de sesión
+    cache.durationMinutes = durationMinutes;
+    cache.lastUpdated = new Date();
+
+    console.log(`🔄 Caché actualizado para sesión ${data.sessionId}: V:${data.voltage_V}V, I:${data.current_mA}mA, P:${data.power_mW}mW`);
+  }
+
+  // 📊 ENDPOINT PRINCIPAL - Obtener datos para frontend (GET /realtime-data/:sessionId)
   async getRealtimeSessionData(sessionId: number) {
+    // Primero verificar que la sesión existe en BD
     const session = await this.prisma.usageSession.findUnique({
       where: { id: sessionId },
       include: {
@@ -126,42 +157,121 @@ export class Esp32DataService {
     });
 
     if (!session) {
-      throw new NotFoundException(`Session ${sessionId} not found`);
+      throw new NotFoundException('Session not found');
     }
 
-    const realtimeData = this.realtimeData.get(sessionId);
+    // Obtener datos desde caché
+    const cache = this.realtimeDataCache.get(sessionId);
     
-    if (!realtimeData) {
-      // Si no hay datos en tiempo real, devolver información básica de la sesión
+    if (!cache) {
+      console.warn(`⚠️ Caché no encontrado para sesión ${sessionId}, creando datos básicos`);
+      
+      // Calcular duración actual
+      const currentTime = new Date();
+      const durationMinutes = Math.floor((currentTime.getTime() - session.startTime.getTime()) / 60000);
+      
       return {
-        ...session,
-        measurements: [],
-        currentStats: {
-          avgCurrent: 0,
-          avgVoltage: 0,
-          avgPower: 0,
-          totalConsumed: 0,
-          measurementCount: 0,
-          durationSeconds: Math.floor((new Date().getTime() - session.startTime.getTime()) / 1000)
+        sessionId: session.id,
+        speakerId: session.speakerId,
+        speakerName: session.speakerName || session.speaker.name,
+        userId: session.userId,
+        status: session.status,
+        startTime: session.startTime.toISOString(),
+        durationMinutes,
+        initialBatteryPercentage: Number(session.initialBatteryPercentage || 100),
+        
+        // Datos vacíos si no hay caché
+        latestData: {
+          timestamp: 0,
+          current_mA: 0,
+          voltage_V: 0,
+          power_mW: 0,
+          battery_remaining_percent: Number(session.speaker.batteryPercentage || 100),
+          total_consumed_mAh: 0,
+          sample_index: 0
         },
-        measurementCount: 0
+        
+        statistics: {
+          avgCurrent_mA: 0,
+          avgVoltage_V: 0,
+          avgPower_mW: 0,
+          peakPower_mW: 0,
+          measurementCount: 0,
+          totalConsumed_mAh: 0,
+          durationSeconds: durationMinutes * 60
+        },
+        
+        hasRealtimeData: false,
+        lastUpdated: new Date().toISOString()
       };
     }
 
+    // Devolver datos completos desde caché
     return {
-      ...session,
-      measurements: realtimeData.measurements.slice(-20), // Últimas 20 mediciones
-      currentStats: realtimeData.currentStats,
-      measurementCount: realtimeData.measurements.length
+      sessionId: cache.sessionId,
+      speakerId: cache.speakerId,
+      speakerName: cache.speakerName,
+      userId: cache.userId,
+      status: cache.status,
+      startTime: cache.startTime,
+      durationMinutes: cache.durationMinutes,
+      initialBatteryPercentage: cache.initialBatteryPercentage,
+      
+      latestData: cache.latestData,
+      statistics: cache.statistics,
+      
+      hasRealtimeData: true,
+      lastUpdated: cache.lastUpdated.toISOString()
     };
   }
 
-  // Iniciar sesión de uso
+  // 🔋 Actualizar solo batería del parlante en BD (cada 30s)
+  async updateSpeakerBattery(data: Esp32DataDto) {
+    try {
+      console.log('🔋 Actualizando batería del parlante en BD:', {
+        speakerId: data.speaker_id,
+        batteryPercent: data.battery_remaining_percent
+      });
+
+      // Validar sesión activa
+      if (data.usage_session_id && data.usage_session_id > 0) {
+        const session = await this.prisma.usageSession.findFirst({
+          where: {
+            id: data.usage_session_id,
+            status: 'ACTIVE'
+          }
+        });
+
+        if (!session) {
+          throw new BadRequestException('Session not found or not active');
+        }
+      }
+
+      // Solo actualizar batería del parlante (NO guardar mediciones)
+      if (data.speaker_id) {
+        const updatedSpeaker = await this.prisma.speaker.update({
+          where: { id: data.speaker_id },
+          data: { 
+            batteryPercentage: new Decimal(data.battery_remaining_percent),
+            updatedAt: new Date()
+          }
+        });
+
+        console.log(`🔋 Batería actualizada en BD para parlante ${data.speaker_id}: ${data.battery_remaining_percent}%`);
+        return updatedSpeaker;
+      }
+
+      return { message: 'Batería actualizada correctamente' };
+    } catch (error) {
+      console.error('Error updating speaker battery:', error);
+      throw error;
+    }
+  }
+
+  // 🚀 Iniciar sesión de uso
   async startUsageSession(speakerId: number, userId: number, initialBatteryPercentage: number) {
     try {
-      console.log(`🚀 Iniciando sesión para parlante ${speakerId}, usuario ${userId}`);
-
-      // Verificar que no hay sesión activa para este parlante
+      // Verificar que no hay sesión activa
       const activeSession = await this.prisma.usageSession.findFirst({
         where: {
           speakerId,
@@ -170,28 +280,28 @@ export class Esp32DataService {
       });
 
       if (activeSession) {
-        throw new BadRequestException(`Speaker ${speakerId} already has an active session (ID: ${activeSession.id})`);
+        throw new BadRequestException('Speaker already has an active session');
       }
 
-      // Obtener información del parlante
+      // Verificar parlante existe
       const speaker = await this.prisma.speaker.findUnique({
         where: { id: speakerId }
       });
 
       if (!speaker) {
-        throw new NotFoundException(`Speaker with ID ${speakerId} not found`);
+        throw new NotFoundException('Speaker not found');
       }
 
-      // Verificar que el usuario existe
+      // Verificar usuario existe
       const user = await this.prisma.user.findUnique({
         where: { id: userId }
       });
 
       if (!user) {
-        throw new NotFoundException(`User with ID ${userId} not found`);
+        throw new NotFoundException('User not found');
       }
 
-      // Crear nueva sesión de uso
+      // Crear sesión
       const session = await this.prisma.usageSession.create({
         data: {
           speakerId,
@@ -202,13 +312,7 @@ export class Esp32DataService {
           status: 'ACTIVE'
         },
         include: {
-          speaker: {
-            select: {
-              id: true,
-              name: true,
-              position: true
-            }
-          },
+          speaker: true,
           user: {
             select: {
               id: true,
@@ -219,7 +323,7 @@ export class Esp32DataService {
         }
       });
 
-      // Actualizar estado del parlante a encendido
+      // Actualizar estado del parlante
       await this.prisma.speaker.update({
         where: { id: speakerId },
         data: { 
@@ -229,37 +333,29 @@ export class Esp32DataService {
         }
       });
 
-      // ✅ NUEVO: Inicializar datos en tiempo real para esta sesión
-      this.realtimeData.set(session.id, {
-        sessionId: session.id,
-        speakerId,
-        startTime: session.startTime,
-        measurements: [],
-        currentStats: {
-          avgCurrent: 0,
-          avgVoltage: 0,
-          avgPower: 0,
-          totalConsumed: 0,
-          measurementCount: 0,
-          durationSeconds: 0
-        }
-      });
-
-      console.log(`✅ Sesión ${session.id} iniciada para parlante "${speaker.name}" (ID: ${speakerId})`);
-      
+      console.log(`✅ Sesión optimizada iniciada para parlante ${speaker.name} (ID: ${speakerId})`);
       return session;
     } catch (error) {
-      console.error('❌ Error iniciando sesión de uso:', error);
+      console.error('Error starting usage session:', error);
       throw error;
     }
   }
 
-  // ✅ MODIFICADO: Terminar sesión guardando solo el resumen
-  async endUsageSessionWithSummary(sessionId: number, finalBatteryPercentage: number) {
+  // 🔚 Finalizar sesión y guardar historial completo
+  async endUsageSession(
+    sessionId: number, 
+    finalBatteryPercentage: number,
+    esp32Data?: {
+      totalMeasurementsSent?: number;
+      totalConsumed_mAh?: number;
+      sessionDurationSeconds?: number;
+      avgCurrent_mA?: number;
+      avgVoltage_V?: number;
+      avgPower_mW?: number;
+      peakPower_mW?: number;
+    }
+  ) {
     try {
-      console.log(`🔚 Terminando sesión ${sessionId} con resumen`);
-
-      // Obtener la sesión
       const session = await this.prisma.usageSession.findUnique({
         where: { id: sessionId },
         include: {
@@ -275,45 +371,42 @@ export class Esp32DataService {
       });
 
       if (!session) {
-        throw new NotFoundException(`Session ${sessionId} not found`);
+        throw new NotFoundException('Session not found');
       }
 
       if (session.status !== 'ACTIVE') {
-        throw new BadRequestException(`Session ${sessionId} is not active (status: ${session.status})`);
+        throw new BadRequestException('Session is not active');
       }
 
       const endTime = new Date();
       const durationMinutes = Math.floor((endTime.getTime() - session.startTime.getTime()) / 60000);
       const batteryConsumed = Number(session.initialBatteryPercentage) - finalBatteryPercentage;
 
-      // Obtener datos en tiempo real de la sesión
-      const realtimeData = this.realtimeData.get(sessionId);
-      
-      let stats = {
-        avgCurrent: 0,
-        avgVoltage: 0,
-        avgPower: 0,
-        totalConsumed: 0,
-        measurementCount: 0,
-        durationSeconds: Math.floor((endTime.getTime() - session.startTime.getTime()) / 1000)
-      };
+      // Calcular estadísticas desde los datos del ESP32
+      const stats = this.calculateStatsFromESP32Data(esp32Data, durationMinutes);
 
-      if (realtimeData && realtimeData.measurements.length > 0) {
-        stats = this.calculateRealtimeStats(realtimeData.measurements, session.startTime);
-      }
-
-      // Actualizar la sesión
+      // Actualizar sesión como completada
       const updatedSession = await this.prisma.usageSession.update({
         where: { id: sessionId },
         data: {
           endTime,
           finalBatteryPercentage: new Decimal(finalBatteryPercentage),
-          status: 'COMPLETED'
+          status: 'COMPLETED',
+          metadata: {
+            totalMeasurementsSent: esp32Data?.totalMeasurementsSent || 0,
+            totalConsumed_mAh: esp32Data?.totalConsumed_mAh || 0,
+            reportedDurationSeconds: esp32Data?.sessionDurationSeconds || 0,
+            actualDurationMinutes: durationMinutes,
+            avgCurrent_mA: esp32Data?.avgCurrent_mA || 0,
+            avgVoltage_V: esp32Data?.avgVoltage_V || 0,
+            avgPower_mW: esp32Data?.avgPower_mW || 0,
+            peakPower_mW: esp32Data?.peakPower_mW || 0
+          }
         }
       });
 
-      // ✅ NUEVO: Crear registro en historial con los promedios
-      await this.prisma.history.create({
+      // Crear registro en historial con datos reales del ESP32
+      const historyRecord = await this.prisma.history.create({
         data: {
           usageSessionId: sessionId,
           speakerId: session.speakerId,
@@ -323,21 +416,33 @@ export class Esp32DataService {
           startDate: session.startTime,
           endDate: endTime,
           durationMinutes,
-          // Usar los promedios calculados de los datos en tiempo real
-          avgCurrent_mA: new Decimal(stats.avgCurrent),
-          avgVoltage_V: new Decimal(stats.avgVoltage),
-          avgPower_mW: new Decimal(stats.avgPower),
-          totalCurrent_mA: new Decimal(stats.avgCurrent * stats.measurementCount),
-          totalVoltage_V: new Decimal(stats.avgVoltage * stats.measurementCount),
-          totalPower_mW: new Decimal(stats.avgPower * stats.measurementCount),
-          totalConsumed_mAh: new Decimal(stats.totalConsumed),
+          
+          // Usar datos reales del ESP32
+          avgVoltageHours: new Decimal(stats.avgVoltage || 0),
+          avgWattsHours: new Decimal(stats.avgPower || 0),
+          avgAmpereHours: new Decimal(stats.avgCurrent || 0),
+          totalVoltageHours: new Decimal(stats.totalVoltage || 0),
+          totalWattsHours: new Decimal(stats.totalPower || 0),
+          totalAmpereHours: new Decimal(stats.totalCurrent || 0),
+          
           initialBatteryPercentage: session.initialBatteryPercentage || new Decimal(0),
           finalBatteryPercentage: new Decimal(finalBatteryPercentage),
-          batteryConsumed: new Decimal(batteryConsumed)
+          batteryConsumed: new Decimal(batteryConsumed),
+          
+          // Guardar datos completos del ESP32
+          esp32Data: {
+            totalMeasurementsSent: esp32Data?.totalMeasurementsSent || 0,
+            totalConsumed_mAh: esp32Data?.totalConsumed_mAh || 0,
+            reportedDurationSeconds: esp32Data?.sessionDurationSeconds || 0,
+            avgCurrent_mA: esp32Data?.avgCurrent_mA || 0,
+            avgVoltage_V: esp32Data?.avgVoltage_V || 0,
+            avgPower_mW: esp32Data?.avgPower_mW || 0,
+            peakPower_mW: esp32Data?.peakPower_mW || 0
+          }
         }
       });
 
-      // Actualizar estado del parlante a apagado
+      // Apagar parlante
       await this.prisma.speaker.update({
         where: { id: session.speakerId },
         data: { 
@@ -347,27 +452,155 @@ export class Esp32DataService {
         }
       });
 
-      // ✅ NUEVO: Limpiar datos en tiempo real de la memoria
-      this.realtimeData.delete(sessionId);
+      // Limpiar caché
+      this.clearRealtimeCache(sessionId);
 
-      console.log(`✅ Sesión ${sessionId} terminada. Duración: ${durationMinutes} min, Batería consumida: ${batteryConsumed.toFixed(1)}%`);
+      console.log(`✅ Sesión ${sessionId} finalizada y guardada en historial`);
+      console.log(`📊 Duración: ${durationMinutes}min, Batería: ${batteryConsumed.toFixed(1)}%`);
+      console.log(`⚡ Datos ESP32: ${esp32Data?.totalMeasurementsSent || 0} mediciones, ${esp32Data?.totalConsumed_mAh || 0} mAh`);
 
       return {
         session: updatedSession,
+        historyRecord,
         statistics: stats,
         durationMinutes,
         batteryConsumed,
-        measurementCount: stats.measurementCount
+        esp32Data
       };
     } catch (error) {
-      console.error('❌ Error terminando sesión de uso:', error);
+      console.error('Error ending usage session:', error);
       throw error;
     }
   }
 
-  // Obtener sesión activa de un parlante
+  // Calcular estadísticas reales desde datos del ESP32
+  private calculateStatsFromESP32Data(esp32Data: any, durationMinutes: number) {
+    if (!esp32Data) {
+      return {
+        avgVoltage: 0,
+        avgCurrent: 0,
+        avgPower: 0,
+        totalVoltage: 0,
+        totalCurrent: 0,
+        totalPower: 0
+      };
+    }
+
+    // Usar datos directos del ESP32
+    const avgCurrent = esp32Data.avgCurrent_mA || 0;
+    const avgVoltage = esp32Data.avgVoltage_V || 0;
+    const avgPower = esp32Data.avgPower_mW || 0;
+    const totalConsumed = esp32Data.totalConsumed_mAh || 0;
+
+    // Calcular totales basados en promedios y duración
+    const durationHours = durationMinutes / 60;
+    const totalCurrent = totalConsumed; // mAh
+    const totalVoltage = avgVoltage * durationHours; // V⋅h
+    const totalPower = avgPower * durationHours / 1000; // W⋅h (convertir de mW⋅h)
+
+    return {
+      avgVoltage,
+      avgCurrent,
+      avgPower,
+      totalVoltage,
+      totalCurrent,
+      totalPower
+    };
+  }
+
+  // 🗑️ Limpiar caché de sesión específica
+  async clearRealtimeCache(sessionId: number): Promise<void> {
+    const deleted = this.realtimeDataCache.delete(sessionId);
+    if (deleted) {
+      console.log(`🗑️ Caché limpiado para sesión ${sessionId}`);
+    }
+  }
+
+  // 🧹 Limpiar caché de sesiones inactivas
+  async cleanupInactiveSessionsCache(): Promise<number> {
+    const activeSessions = await this.prisma.usageSession.findMany({
+      where: { status: 'ACTIVE' },
+      select: { id: true }
+    });
+
+    const activeIds = new Set(activeSessions.map(s => s.id));
+    let cleanedCount = 0;
+
+    for (const [sessionId] of this.realtimeDataCache) {
+      if (!activeIds.has(sessionId)) {
+        this.realtimeDataCache.delete(sessionId);
+        cleanedCount++;
+      }
+    }
+
+    if (cleanedCount > 0) {
+      console.log(`🧹 Limpieza de caché: ${cleanedCount} sesiones inactivas eliminadas`);
+    }
+
+    return cleanedCount;
+  }
+
+  // 🏥 Verificar salud del caché
+  async checkCacheHealth(): Promise<boolean> {
+    try {
+      const cacheSize = this.realtimeDataCache.size;
+      console.log(`🗄️ Caché activo: ${cacheSize} sesiones`);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // 📊 Obtener estadísticas desde metadatos de sesión o caché
+  async getSessionStatistics(sessionId: number) {
+    const session = await this.prisma.usageSession.findUnique({
+      where: { id: sessionId }
+    });
+
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+
+    // Si la sesión está activa, usar datos del caché
+    if (session.status === 'ACTIVE') {
+      const cache = this.realtimeDataCache.get(sessionId);
+      if (cache) {
+        return {
+          avgVoltageHours: cache.statistics.avgVoltage_V,
+          avgWattsHours: cache.statistics.avgPower_mW / 1000,
+          avgAmpereHours: cache.statistics.avgCurrent_mA / 1000,
+          totalVoltageHours: cache.statistics.avgVoltage_V * (cache.statistics.durationSeconds / 3600),
+          totalWattsHours: cache.statistics.avgPower_mW * (cache.statistics.durationSeconds / 3600) / 1000,
+          totalAmpereHours: cache.latestData.total_consumed_mAh / 1000,
+          measurementCount: cache.statistics.measurementCount,
+          durationMinutes: Math.floor(cache.statistics.durationSeconds / 60),
+          avgMeasurementInterval: cache.statistics.measurementCount > 0 ? cache.statistics.durationSeconds / cache.statistics.measurementCount : 0
+        };
+      }
+    }
+
+    // Si la sesión está completada, usar metadatos
+    const endTime = session.endTime || new Date();
+    const durationMinutes = Math.floor((endTime.getTime() - session.startTime.getTime()) / 60000);
+    
+    const metadata = session.metadata as any;
+    
+    return {
+      avgVoltageHours: metadata?.avgVoltage_V || 0,
+      avgWattsHours: metadata?.avgPower_mW || 0,
+      avgAmpereHours: metadata?.avgCurrent_mA || 0,
+      totalVoltageHours: 0,
+      totalWattsHours: 0,
+      totalAmpereHours: metadata?.totalConsumed_mAh || 0,
+      measurementCount: metadata?.totalMeasurementsSent || 0,
+      durationMinutes,
+      avgMeasurementInterval: durationMinutes > 0 ? (metadata?.reportedDurationSeconds || 0) / (metadata?.totalMeasurementsSent || 1) : 0
+    };
+  }
+
+  // 🔍 Obtener sesión activa de un parlante
   async getActiveSession(speakerId: number) {
-    const session = await this.prisma.usageSession.findFirst({
+    return await this.prisma.usageSession.findFirst({
       where: {
         speakerId,
         status: 'ACTIVE'
@@ -383,26 +616,9 @@ export class Esp32DataService {
         }
       }
     });
-
-    if (!session) {
-      return null;
-    }
-
-    // Agregar datos en tiempo real si existen
-    const realtimeData = this.realtimeData.get(session.id);
-    if (realtimeData) {
-      return {
-        ...session,
-        currentStats: realtimeData.currentStats,
-        measurementCount: realtimeData.measurements.length,
-        latestMeasurements: realtimeData.measurements.slice(-5) // Últimas 5 mediciones
-      };
-    }
-
-    return session;
   }
 
-  // Obtener sesión por ID
+  // 🆔 Obtener sesión por ID
   async getSessionById(sessionId: number) {
     return await this.prisma.usageSession.findUnique({
       where: { id: sessionId },
@@ -419,81 +635,7 @@ export class Esp32DataService {
     });
   }
 
-  // Obtener estado del parlante
-  async getSpeakerStatus(speakerId: number) {
-    const speaker = await this.prisma.speaker.findUnique({
-      where: { id: speakerId },
-      include: {
-        usageSessions: {
-          where: { status: 'ACTIVE' },
-          take: 1
-        }
-      }
-    });
-
-    if (!speaker) {
-      throw new NotFoundException(`Speaker with ID ${speakerId} not found`);
-    }
-
-    return {
-      speaker,
-      hasActiveSession: speaker.usageSessions.length > 0,
-      activeSession: speaker.usageSessions[0] || null
-    };
-  }
-
-  // Forzar finalización de todas las sesiones activas
-  async forceEndAllActiveSessions() {
-    try {
-      const activeSessions = await this.prisma.usageSession.findMany({
-        where: { status: 'ACTIVE' },
-        include: { speaker: true }
-      });
-
-      const endTime = new Date();
-      const results: { sessionId: number; speakerId: number; speakerName: string | null }[] = [];
-
-      for (const session of activeSessions) {
-        // Finalizar sesión con estado INTERRUPTED
-        await this.prisma.usageSession.update({
-          where: { id: session.id },
-          data: {
-            endTime,
-            finalBatteryPercentage: session.speaker.batteryPercentage,
-            status: 'INTERRUPTED'
-          }
-        });
-
-        // Apagar parlante
-        await this.prisma.speaker.update({
-          where: { id: session.speakerId },
-          data: { 
-            state: false,
-            updatedAt: new Date()
-          }
-        });
-
-        // ✅ NUEVO: Limpiar datos en tiempo real
-        this.realtimeData.delete(session.id);
-
-        results.push({
-          sessionId: session.id,
-          speakerId: session.speakerId,
-          speakerName: session.speakerName
-        });
-      }
-
-      return {
-        count: results.length,
-        sessions: results
-      };
-    } catch (error) {
-      console.error('❌ Error force-ending sessions:', error);
-      throw error;
-    }
-  }
-
-  // Verificar salud de la base de datos
+  // 🏥 Verificar salud de la base de datos
   async checkDatabaseHealth(): Promise<boolean> {
     try {
       await this.prisma.$queryRaw`SELECT 1`;
@@ -503,37 +645,19 @@ export class Esp32DataService {
     }
   }
 
-  // ✅ NUEVO: Calcular estadísticas en tiempo real
-  private calculateRealtimeStats(measurements: Esp32DataDto[], startTime: Date) {
-    if (measurements.length === 0) {
-      return {
-        avgCurrent: 0,
-        avgVoltage: 0,
-        avgPower: 0,
-        totalConsumed: 0,
-        measurementCount: 0,
-        durationSeconds: Math.floor((new Date().getTime() - startTime.getTime()) / 1000)
-      };
-    }
+  // 📊 Obtener información del caché para debugging
+  getCacheInfo() {
+    const sessions = Array.from(this.realtimeDataCache.entries()).map(([sessionId, cache]) => ({
+      sessionId,
+      speakerId: cache.speakerId,
+      measurementCount: cache.statistics.measurementCount,
+      lastUpdated: cache.lastUpdated,
+      latestBattery: cache.latestData.battery_remaining_percent
+    }));
 
-    const totals = measurements.reduce((acc, m) => {
-      acc.current += m.current_mA;
-      acc.voltage += m.voltage_V;
-      acc.power += m.power_mW;
-      acc.consumed += m.total_consumed_mAh;
-      return acc;
-    }, { current: 0, voltage: 0, power: 0, consumed: 0 });
-
-    const count = measurements.length;
-    const latestMeasurement = measurements[measurements.length - 1];
-    
     return {
-      avgCurrent: Number((totals.current / count).toFixed(2)),
-      avgVoltage: Number((totals.voltage / count).toFixed(2)),
-      avgPower: Number((totals.power / count).toFixed(2)),
-      totalConsumed: latestMeasurement ? latestMeasurement.total_consumed_mAh : 0,
-      measurementCount: count,
-      durationSeconds: Math.floor((new Date().getTime() - startTime.getTime()) / 1000)
+      totalSessions: this.realtimeDataCache.size,
+      sessions
     };
   }
 }

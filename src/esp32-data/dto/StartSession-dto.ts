@@ -2,6 +2,8 @@ import {
     IsInt, 
     IsNotEmpty, 
     IsNumber, 
+    IsOptional,
+    IsString,
     Max, 
     Min 
 } from "class-validator";
@@ -21,4 +23,8 @@ export class StartSessionDto {
   @Min(0)
   @Max(100)
   initialBatteryPercentage: number;
+
+  @IsString()
+  @IsOptional()
+  mode?: string;                        // "realtime" por defecto
 }

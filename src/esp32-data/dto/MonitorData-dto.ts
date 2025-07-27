@@ -7,7 +7,17 @@ import {
     Min 
 } from "class-validator";
 
-export class Esp32DataDto {
+export class MonitorDataDto {
+  @IsInt()
+  @IsNotEmpty()
+  @Min(1)
+  sessionId: number;                    // ID de sesión activa
+
+  @IsInt()
+  @IsNotEmpty()
+  @Min(1)
+  speakerId: number;                    // ID del parlante
+
   @IsNumber()
   @IsNotEmpty()
   timestamp: number;                    // Tiempo desde inicio en segundos
@@ -32,15 +42,6 @@ export class Esp32DataDto {
   @Max(100)
   battery_remaining_percent: number;    // Porcentaje de batería restante
 
-  @IsInt()
-  @IsNotEmpty()
-  @Min(1)
-  speaker_id: number;                   // ID del parlante
-
-  @IsInt()
-  @IsOptional()  // Puede ser -999 para modo offline
-  usage_session_id: number;            // ID de sesión de uso
-
   @IsNumber()
   @IsNotEmpty()
   @Min(0)
@@ -50,4 +51,25 @@ export class Esp32DataDto {
   @IsNotEmpty()
   @Min(0)
   sample_index: number;                 // Índice de muestra
+
+  // Estadísticas calculadas opcionales (desde ESP32)
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  avgCurrent_mA?: number;               // Corriente promedio
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  avgVoltage_V?: number;                // Voltaje promedio
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  avgPower_mW?: number;                 // Potencia promedio
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  peakPower_mW?: number;                // Pico de potencia
 }

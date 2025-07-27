@@ -19,6 +19,15 @@ export class AuthService {
 
     async register(CreateUserDto: CreateUserDto) {
       try {
+        // Verificar si el email ya existe
+        const existingUser = await this.prisma.user.findUnique({
+          where: { email: CreateUserDto.email }
+        });
+
+        if (existingUser) {
+          throw new Error('El usuario con ese email ya existe');
+        }
+
         const { password, ...userDto } = CreateUserDto;
         const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -26,8 +35,15 @@ export class AuthService {
           data: {
             ...userDto,
             password: hashedPassword,
-            role: Role.USER, // Asignar un rol por defecto
+            role: CreateUserDto.role || Role.USER, // Usar el rol del DTO o USER por defecto
           },
+          select: { // No devolver la contraseña
+            id: true,
+            username: true,
+            email: true,
+            role: true,
+            createdAt: true,
+          }
         });
 
         return user;
@@ -51,66 +67,63 @@ export class AuthService {
         id: true,
         password: true,
         email: true,
-        username: true, // <-- AÑADIDO: Necesitamos el username para el token
+        username: true,
         role: true,
       },
     });
+
     if (!user) {
       throw new UnauthorizedException("Las credenciales no son válidas");
     }
+
     if (!bcrypt.compareSync(password, user.password)) {
       throw new UnauthorizedException("Las credenciales no son válidas");
     }
 
     const roleName = user.role;
   
-    const accessToken = this.getJwtToken(
-      { id: user.id.toString(), role: roleName},
-      { expiresIn: "2d" },
-    );
-    const refreshToken = this.getJwtToken({ id: user.id.toString() }, { expiresIn: "7d" });
+    const accessToken = this.getJwtToken({ id: user.id.toString(), role: roleName });
+    const refreshToken = this.getJwtToken({ id: user.id.toString() });
 
     return {
       userId: user.id,
-      username: user.username, // <-- AÑADIDO: Devolvemos el username en la respuesta
+      username: user.username,
       roleName,
       accessToken,
       refreshToken,
     };
   }
 
-
-  private getJwtToken(payload: JwtPayload, options?: { expiresIn: string }) {
-    const token = this.jwtService.sign(payload, options);
+  private getJwtToken(payload: JwtPayload) {
+    const token = this.jwtService.sign(payload);
     return token;
   }
+
   async refreshToken(refreshDto: RefreshDto) {
     try {
       const payload = this.jwtService.verify(refreshDto.refreshToken, {
         secret: this.configService.get<string>("JWT_SECRET"),
       });
+      
       const user = await this.prisma.user.findUnique({
-        where: { id: payload.id },
-        select: { email: true, password: true, id: true },
+        where: { id: parseInt(payload.id) },
+        select: { email: true, id: true, role: true, username: true },
       });
 
       if (!user) throw new UnauthorizedException("Invalid refresh token");
-      const accessToken = this.getJwtToken(
-        { id: user.id.toString() },
-        { expiresIn: "2d" },
-      );
-      const refreshToken = this.getJwtToken(
-        { id: user.id.toString() },
-        { expiresIn: "7d" },
-      );
+      
+      const accessToken = this.getJwtToken({ id: user.id.toString(), role: user.role });
+      const refreshToken = this.getJwtToken({ id: user.id.toString() });
 
       return {
-        ...user,
+        userId: user.id,
+        username: user.username,
+        roleName: user.role,
         accessToken,
         refreshToken,
       };
     } catch (error) {
-      throw error;
+      throw new UnauthorizedException("Invalid refresh token");
     }
   }
 }
