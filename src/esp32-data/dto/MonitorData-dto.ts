@@ -1,75 +1,78 @@
-import { 
-    IsInt, 
-    IsNotEmpty, 
-    IsNumber, 
-    IsOptional, 
-    Max, 
-    Min 
-} from "class-validator";
+import { IsInt, IsNumber, IsNotEmpty, IsOptional, Min, Max } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class MonitorDataDto {
   @IsInt()
   @IsNotEmpty()
-  @Min(1)
-  sessionId: number;                    // ID de sesión activa
+  @Type(() => Number)
+  sessionId: number;
 
   @IsInt()
   @IsNotEmpty()
-  @Min(1)
-  speakerId: number;                    // ID del parlante
+  @Type(() => Number)
+  speakerId: number;
 
   @IsNumber()
   @IsNotEmpty()
-  timestamp: number;                    // Tiempo desde inicio en segundos
+  @Type(() => Number)
+  timestamp: number;
 
   @IsNumber()
   @IsNotEmpty()
-  @Min(0)
-  current_mA: number;                   // Corriente en mA
+  @Type(() => Number)
+  current_mA: number;
 
   @IsNumber()
   @IsNotEmpty()
-  @Min(0)
-  voltage_V: number;                    // Voltaje en V
+  @Type(() => Number)
+  voltage_V: number;
 
   @IsNumber()
   @IsNotEmpty()
-  @Min(0)
-  power_mW: number;                     // Potencia en mW
+  @Type(() => Number)
+  power_mW: number;
 
   @IsNumber()
   @Min(0)
   @Max(100)
-  battery_remaining_percent: number;    // Porcentaje de batería restante
+  @IsNotEmpty()
+  @Type(() => Number)
+  battery_remaining_percent: number;
 
   @IsNumber()
   @IsNotEmpty()
-  @Min(0)
-  total_consumed_mAh: number;           // Total consumido en mAh
+  @Type(() => Number)
+  total_consumed_mAh: number;
 
   @IsInt()
   @IsNotEmpty()
-  @Min(0)
-  sample_index: number;                 // Índice de muestra
-
-  // Estadísticas calculadas opcionales (desde ESP32)
-  @IsNumber()
-  @IsOptional()
-  @Min(0)
-  avgCurrent_mA?: number;               // Corriente promedio
+  @Type(() => Number)
+  sample_index: number;
 
   @IsNumber()
   @IsOptional()
-  @Min(0)
-  avgVoltage_V?: number;                // Voltaje promedio
+  @Type(() => Number)
+  avgCurrent_mA?: number;
 
   @IsNumber()
   @IsOptional()
-  @Min(0)
-  avgPower_mW?: number;                 // Potencia promedio
+  @Type(() => Number)
+  avgVoltage_V?: number;
 
   @IsNumber()
   @IsOptional()
-  @Min(0)
-  peakPower_mW?: number;                // Pico de potencia
+  @Type(() => Number)
+  avgPower_mW?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  peakPower_mW?: number;
+
+  @IsInt()
+  @Min(5)
+  @Max(30)
+  @IsOptional()
+  @Type(() => Number)
+  currentVolume?: number;
 }

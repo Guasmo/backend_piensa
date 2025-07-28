@@ -9,6 +9,74 @@ import { SpeakerFilters } from './dto/speakers-Dto';
 export class SpeakersService {
   constructor(private prisma: PrismaService) {}
 
+  // 🆕 NUEVO: Obtener todo el historial de todos los parlantes
+  async getAllSpeakersHistory(limit: number = 50, page: number = 1) {
+    const skip = (page - 1) * limit;
+
+    const [histories, total] = await Promise.all([
+      this.prisma.history.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip,
+        include: {
+          user: {
+            select: {
+              id: true,
+              username: true,
+              email: true
+            }
+          },
+          speaker: {
+            select: {
+              id: true,
+              name: true,
+              position: true
+            }
+          }
+        }
+      }),
+      this.prisma.history.count()
+    ]);
+
+    // Transformar los datos para que coincidan con la interfaz del frontend
+    const transformedHistories = histories.map(history => ({
+      id: history.id,
+      usageSessionId: history.usageSessionId,
+      speakerId: history.speakerId,
+      speakerName: history.speaker?.name || 'Desconocido',
+      speakerPosition: history.speaker?.position || 'Desconocida',
+      userId: history.userId,
+      user: history.user,
+      startDate: history.startDate,
+      endDate: history.endDate,
+      durationMinutes: history.durationMinutes,
+      
+      // Campos de medición - usar los nombres correctos de la base de datos
+      avgAmpereHours: history.avgAmpereHours,
+      avgVoltageHours: history.avgVoltageHours,
+      avgWattsHours: history.avgWattsHours,
+      
+      totalAmpereHours: history.totalAmpereHours,
+      totalVoltageHours: history.totalVoltageHours,
+      totalWattsHours: history.totalWattsHours,
+      
+      // Información de batería
+      initialBatteryPercentage: history.initialBatteryPercentage,
+      finalBatteryPercentage: history.finalBatteryPercentage,
+      batteryConsumed: history.batteryConsumed,
+      
+      createdAt: history.createdAt
+    }));
+
+    return {
+      histories: transformedHistories,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    };
+  }
+
   // Obtener todos los parlantes con filtros
   async findAll(filters: SpeakerFilters = {}) {
     const where: any = {};
@@ -203,7 +271,6 @@ export class SpeakersService {
     }
 
     const activeSession = speaker.usageSessions[0];
-    // FIX 1: The type of `sessionInfo` is explicitly declared to avoid the 'not assignable to type null' error.
     let sessionInfo: any = null;
 
     if (activeSession) {
@@ -240,7 +307,7 @@ export class SpeakersService {
     };
   }
 
-  // Obtener historial de un parlante
+  // Obtener historial de un parlante específico
   async getSpeakerHistory(id: number, limit: number = 10, page: number = 1) {
     const speaker = await this.prisma.speaker.findUnique({
       where: { id }
@@ -265,6 +332,13 @@ export class SpeakersService {
               username: true,
               email: true
             }
+          },
+          speaker: {
+            select: {
+              id: true,
+              name: true,
+              position: true
+            }
           }
         }
       }),
@@ -273,8 +347,38 @@ export class SpeakersService {
       })
     ]);
 
+    // Transformar los datos de la misma manera que getAllSpeakersHistory
+    const transformedHistories = histories.map(history => ({
+      id: history.id,
+      usageSessionId: history.usageSessionId,
+      speakerId: history.speakerId,
+      speakerName: history.speaker?.name || 'Desconocido',
+      speakerPosition: history.speaker?.position || 'Desconocida',
+      userId: history.userId,
+      user: history.user,
+      startDate: history.startDate,
+      endDate: history.endDate,
+      durationMinutes: history.durationMinutes,
+      
+      // Campos de medición - usar los nombres correctos de la base de datos
+      avgAmpereHours: history.avgAmpereHours,
+      avgVoltageHours: history.avgVoltageHours,
+      avgWattsHours: history.avgWattsHours,
+      
+      totalAmpereHours: history.totalAmpereHours,
+      totalVoltageHours: history.totalVoltageHours,
+      totalWattsHours: history.totalWattsHours,
+      
+      // Información de batería
+      initialBatteryPercentage: history.initialBatteryPercentage,
+      finalBatteryPercentage: history.finalBatteryPercentage,
+      batteryConsumed: history.batteryConsumed,
+      
+      createdAt: history.createdAt
+    }));
+
     return {
-      histories,
+      histories: transformedHistories,
       pagination: {
         total,
         page,
@@ -329,7 +433,6 @@ export class SpeakersService {
     }
 
     const endTime = new Date();
-    // FIX 2: The type of the `results` array is explicitly defined to avoid the 'Argument of type... is not assignable to parameter of type never' error.
     const results: { sessionId: number; status: string }[] = [];
 
     // Terminar todas las sesiones activas

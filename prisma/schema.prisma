@@ -1,3 +1,4 @@
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -78,7 +79,6 @@ model UsageSession {
 
   @@map("usage_sessions")
 }
-
 // Tabla para registrar mediciones en tiempo real durante el uso
 model EnergyMeasurement {
   id                Int      @id @default(autoincrement())

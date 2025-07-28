@@ -23,7 +23,8 @@ import { Role } from '@prisma/client';
 @Controller('speakers')
 export class SpeakersController {
   constructor(private readonly speakersService: SpeakersService) {}
-  // Obtener todos los parlantes con filtros opcionales
+
+  // ✅ 1. RUTAS ESTÁTICAS PRIMERO - Obtener todos los parlantes con filtros opcionales
   @Get()
   async findAll(
     @Query('state') state?: string,
@@ -54,6 +55,54 @@ export class SpeakersController {
     }
   }
 
+  // ✅ 2. RUTA all-history ANTES de las rutas con :id
+  @Get('all-history')
+  async getAllSpeakersHistory(
+    @Query('limit') limit?: string,
+    @Query('page') page?: string
+  ) {
+    try {
+      const limitNum = limit ? parseInt(limit) : 50;
+      const pageNum = page ? parseInt(page) : 1;
+      
+      const result = await this.speakersService.getAllSpeakersHistory(limitNum, pageNum);
+      
+      return {
+        success: true,
+        data: result,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new InternalServerErrorException({
+        success: false,
+        message: 'Error fetching all speakers history',
+        error: error.message
+      });
+    }
+  }
+
+  // ✅ 3. RUTA battery/stats ANTES de las rutas con :id
+  @Get('battery/stats')
+  async getBatteryStats() {
+    try {
+      const stats = await this.speakersService.getBatteryStatistics();
+      
+      return {
+        success: true,
+        data: stats,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new InternalServerErrorException({
+        success: false,
+        message: 'Error fetching battery statistics',
+        error: error.message
+      });
+    }
+  }
+
+  // ✅ 4. RUTAS DINÁMICAS CON :id AL FINAL
+
   // Obtener un parlante por ID
   @Get(':id')
   async findOne(@Param('id', ParseIntPipe) id: number) {
@@ -78,6 +127,88 @@ export class SpeakersController {
     }
   }
 
+  // Obtener historial de un parlante específico
+  @Get(':id/history')
+  async getSpeakerHistory(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('limit') limit?: string,
+    @Query('page') page?: string
+  ) {
+    try {
+      const limitNum = limit ? parseInt(limit) : 20;
+      const pageNum = page ? parseInt(page) : 1;
+      
+      const history = await this.speakersService.getSpeakerHistory(id, limitNum, pageNum);
+      
+      return {
+        success: true,
+        data: history,
+        pagination: {
+          page: pageNum,
+          limit: limitNum
+        },
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      
+      throw new InternalServerErrorException({
+        success: false,
+        message: 'Error fetching speaker history',
+        error: error.message
+      });
+    }
+  }
+
+  // Obtener estado detallado de un parlante
+  @Get(':id/status')
+  async getSpeakerStatus(@Param('id', ParseIntPipe) id: number) {
+    try {
+      const status = await this.speakersService.getSpeakerDetailedStatus(id);
+      
+      return {
+        success: true,
+        data: status,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      
+      throw new InternalServerErrorException({
+        success: false,
+        message: 'Error fetching speaker status',
+        error: error.message
+      });
+    }
+  }
+
+  // Obtener sesión actual activa de un parlante
+  @Get(':id/active-session')
+  async getActiveSession(@Param('id', ParseIntPipe) id: number) {
+    try {
+      const session = await this.speakersService.getActiveSession(id);
+      
+      return {
+        success: true,
+        hasActiveSession: !!session,
+        data: session,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      throw new InternalServerErrorException({
+        success: false,
+        message: 'Error fetching active session',
+        error: error.message
+      });
+    }
+  }
+
+  // ✅ 5. MÉTODOS POST, PUT, DELETE AL FINAL
+
   // Crear nuevo parlante
   @Auth(Role.ADMIN, Role.SUPERADMIN)
   @Post()
@@ -96,6 +227,31 @@ export class SpeakersController {
       throw new BadRequestException({
         success: false,
         message: 'Error creating speaker',
+        error: error.message
+      });
+    }
+  }
+
+  // Forzar apagado de un parlante (terminar sesión activa)
+  @Post(':id/force-shutdown')
+  async forceShutdown(@Param('id', ParseIntPipe) id: number) {
+    try {
+      const result = await this.speakersService.forceShutdown(id);
+      
+      return {
+        success: true,
+        message: result.message,
+        data: result,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+      
+      throw new InternalServerErrorException({
+        success: false,
+        message: 'Error forcing shutdown',
         error: error.message
       });
     }
@@ -151,131 +307,6 @@ export class SpeakersController {
       throw new InternalServerErrorException({
         success: false,
         message: 'Error deleting speaker',
-        error: error.message
-      });
-    }
-  }
-
-  // Obtener estado detallado de un parlante
-  @Get(':id/status')
-  async getSpeakerStatus(@Param('id', ParseIntPipe) id: number) {
-    try {
-      const status = await this.speakersService.getSpeakerDetailedStatus(id);
-      
-      return {
-        success: true,
-        data: status,
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      
-      throw new InternalServerErrorException({
-        success: false,
-        message: 'Error fetching speaker status',
-        error: error.message
-      });
-    }
-  }
-
-  // Obtener historial de un parlante
-  @Get(':id/history')
-  async getSpeakerHistory(
-    @Param('id', ParseIntPipe) id: number,
-    @Query('limit') limit?: string,
-    @Query('page') page?: string
-  ) {
-    try {
-      const limitNum = limit ? parseInt(limit) : 10;
-      const pageNum = page ? parseInt(page) : 1;
-      
-      const history = await this.speakersService.getSpeakerHistory(id, limitNum, pageNum);
-      
-      return {
-        success: true,
-        data: history,
-        pagination: {
-          page: pageNum,
-          limit: limitNum
-        },
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      
-      throw new InternalServerErrorException({
-        success: false,
-        message: 'Error fetching speaker history',
-        error: error.message
-      });
-    }
-  }
-
-  // Obtener sesión actual activa de un parlante
-  @Get(':id/active-session')
-  async getActiveSession(@Param('id', ParseIntPipe) id: number) {
-    try {
-      const session = await this.speakersService.getActiveSession(id);
-      
-      return {
-        success: true,
-        hasActiveSession: !!session,
-        data: session,
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      throw new InternalServerErrorException({
-        success: false,
-        message: 'Error fetching active session',
-        error: error.message
-      });
-    }
-  }
-
-  // Forzar apagado de un parlante (terminar sesión activa)
-  @Post(':id/force-shutdown')
-  async forceShutdown(@Param('id', ParseIntPipe) id: number) {
-    try {
-      const result = await this.speakersService.forceShutdown(id);
-      
-      return {
-        success: true,
-        message: result.message,
-        data: result,
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      if (error instanceof NotFoundException || error instanceof BadRequestException) {
-        throw error;
-      }
-      
-      throw new InternalServerErrorException({
-        success: false,
-        message: 'Error forcing shutdown',
-        error: error.message
-      });
-    }
-  }
-
-  // Obtener estadísticas de batería de todos los parlantes
-  @Get('battery/stats')
-  async getBatteryStats() {
-    try {
-      const stats = await this.speakersService.getBatteryStatistics();
-      
-      return {
-        success: true,
-        data: stats,
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      throw new InternalServerErrorException({
-        success: false,
-        message: 'Error fetching battery statistics',
         error: error.message
       });
     }
