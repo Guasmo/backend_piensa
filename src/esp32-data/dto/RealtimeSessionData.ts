@@ -1,4 +1,4 @@
-export interface RealtimeSessionData {
+interface RealtimeSessionData {
   sessionId: number;
   speakerId: number;
   speakerName: string;
@@ -7,7 +7,6 @@ export interface RealtimeSessionData {
   startTime: string;
   durationMinutes: number;
   initialBatteryPercentage: number;
-  currentVolume: number; // 🔊 Añadido volumen actual
   
   // Datos más recientes del ESP32
   latestData: {

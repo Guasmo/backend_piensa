@@ -311,4 +311,66 @@ export class SpeakersController {
       });
     }
   }
+
+  @Get(':id/battery-level')
+async getBatteryLevel(@Param('id', ParseIntPipe) id: number) {
+  try {
+    const speaker = await this.speakersService.findOne(id);
+    
+    return {
+      success: true,
+      speakerId: id,
+      currentBatteryLevel: Number(speaker.batteryPercentage),
+      lastUpdated: speaker.updatedAt,
+      timestamp: new Date().toISOString()
+    };
+  } catch (error) {
+    if (error instanceof NotFoundException) {
+      throw error;
+    }
+    
+    throw new InternalServerErrorException({
+      success: false,
+      message: 'Error fetching battery level',
+      error: error.message
+    });
+  }
+}
+
+
+@Put(':id/battery-level')
+async updateBatteryLevel(
+  @Param('id', ParseIntPipe) id: number,
+  @Body() updateData: { batteryLevel: number }
+) {
+  try {
+    if (updateData.batteryLevel < 0 || updateData.batteryLevel > 100) {
+      throw new BadRequestException('Battery level must be between 0 and 100');
+    }
+
+    const updatedSpeaker = await this.speakersService.updateBatteryLevel(id, updateData.batteryLevel);
+    
+    return {
+      success: true,
+      message: 'Battery level updated successfully',
+      data: {
+        speakerId: id,
+        previousLevel: Number(updatedSpeaker.batteryPercentage),
+        newLevel: updateData.batteryLevel,
+        updatedAt: new Date().toISOString()
+      },
+      timestamp: new Date().toISOString()
+    };
+  } catch (error) {
+    if (error instanceof NotFoundException || error instanceof BadRequestException) {
+      throw error;
+    }
+    
+    throw new InternalServerErrorException({
+      success: false,
+      message: 'Error updating battery level',
+      error: error.message
+    });
+  }
+}
 }

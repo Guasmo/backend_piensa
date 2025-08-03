@@ -510,4 +510,25 @@ export class SpeakersService {
     if (percentage > 10) return 'low';
     return 'critical';
   }
+
+
+
+  async updateBatteryLevel(id: number, batteryLevel: number) {
+  const speaker = await this.prisma.speaker.findUnique({
+    where: { id }
+  });
+
+  if (!speaker) {
+    throw new NotFoundException('Speaker not found');
+  }
+
+  return await this.prisma.speaker.update({
+    where: { id },
+    data: {
+      batteryPercentage: new Decimal(batteryLevel),
+      updatedAt: new Date()
+    }
+  });
+}
+
 }
