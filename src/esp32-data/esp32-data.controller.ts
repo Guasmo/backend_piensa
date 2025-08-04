@@ -480,101 +480,94 @@ export class Esp32DataController {
 
 
 
-  // 🔊 CONTROL DE VOLUMEN - Endpoint principal
-  @Post('volume/:speakerId')
-  @UsePipes(new ValidationPipe({ transform: true }))
-  async setVolume(
-    @Param('speakerId', ParseIntPipe) speakerId: number,
-    @Body() volumeData: VolumeControlDto
-  ) {
-    try {
-      console.log(`🔊 Comando de volumen recibido para speaker ${speakerId}:`, {
-        volume: volumeData.volume,
-        sessionId: volumeData.sessionId,
-        action: volumeData.action || 'set'
-      });
+  
+// 🔊 ENDPOINT DE VOLUMEN SIMPLE (SIN ESP32)
+@Post('volume/:speakerId')
+@UsePipes(new ValidationPipe({ transform: true }))
+async setVolume(
+  @Param('speakerId', ParseIntPipe) speakerId: number,
+  @Body() volumeData: any
+) {
+  try {
+    console.log(`🔊 Comando de volumen recibido para speaker ${speakerId}:`, volumeData);
 
-      // Validar que el speaker existe
-      const speaker = await this.esp32DataService.getSpeakerById(speakerId);
-      if (!speaker) {
-        throw new NotFoundException(`Speaker ${speakerId} not found`);
-      }
-
-      // Validar rango de volumen
-      if (volumeData.volume < 5 || volumeData.volume > 30) {
-        throw new BadRequestException('Volume must be between 5 and 30');
-      }
-
-      // Verificar si hay sesión activa (opcional, pero recomendado)
-      if (volumeData.sessionId) {
-        const session = await this.esp32DataService.getSessionById(volumeData.sessionId);
-        if (!session || session.status !== 'ACTIVE') {
-          console.warn(`⚠️ Session ${volumeData.sessionId} not active, but allowing volume change`);
-        }
-      }
-
-      // Enviar comando al ESP32
-      const result = await this.esp32DataService.sendVolumeCommand(speakerId, volumeData);
-
-      return {
-        success: true,
-        message: 'Volume command sent successfully',
-        data: result,
-        timestamp: new Date().toISOString()
-      };
-
-    } catch (error) {
-      console.error(`❌ Error en comando de volumen para speaker ${speakerId}:`, error.message);
-      
-      if (error instanceof NotFoundException || error instanceof BadRequestException) {
-        throw error;
-      }
-      
-      throw new InternalServerErrorException({
+    // Validar volumen
+    const volume = volumeData.volume;
+    if (!volume || volume < 5 || volume > 30) {
+      throw new BadRequestException({
         success: false,
-        message: 'Error sending volume command',
-        error: error.message,
-        speakerId
+        message: 'Volume must be between 5 and 30',
+        currentVolume: volume
       });
     }
-  }
 
-  // 🔊 Obtener estado actual del volumen
-  @Get('volume/:speakerId')
-  async getVolumeStatus(@Param('speakerId', ParseIntPipe) speakerId: number) {
-    try {
-      console.log(`🔊 Consultando estado de volumen para speaker ${speakerId}`);
+    // Simular cambio de volumen exitoso
+    const previousVolume = 25; // Valor simulado
+    
+    console.log(`✅ Volumen simulado cambiado de ${previousVolume} a ${volume} para speaker ${speakerId}`);
 
-      // Validar que el speaker existe
-      const speaker = await this.esp32DataService.getSpeakerById(speakerId);
-      if (!speaker) {
-        throw new NotFoundException(`Speaker ${speakerId} not found`);
+    // Respuesta exitosa inmediata
+    return {
+      success: true,
+      message: 'Volume changed successfully',
+      data: {
+        speakerId,
+        previousVolume,
+        newVolume: volume,
+        timestamp: new Date().toISOString(),
+        mode: 'simulation' // Indicar que es simulación
       }
+    };
 
-      // Obtener estado del volumen desde el ESP32
-      const volumeStatus = await this.esp32DataService.getVolumeStatus(speakerId);
-
-      return {
-        success: true,
-        data: volumeStatus,
-        timestamp: new Date().toISOString()
-      };
-
-    } catch (error) {
-      console.error(`❌ Error obteniendo estado de volumen para speaker ${speakerId}:`, error.message);
-      
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      
-      throw new InternalServerErrorException({
-        success: false,
-        message: 'Error fetching volume status',
-        error: error.message,
-        speakerId
-      });
+  } catch (error) {
+    console.error(`❌ Error en comando de volumen para speaker ${speakerId}:`, error.message);
+    
+    if (error instanceof BadRequestException) {
+      throw error;
     }
+    
+    throw new InternalServerErrorException({
+      success: false,
+      message: 'Error processing volume command',
+      error: error.message,
+      speakerId
+    });
   }
+}
+
+  // 🔊 OBTENER ESTADO DEL VOLUMEN (SIMULADO)
+@Get('volume/:speakerId')
+async getVolumeStatus(@Param('speakerId', ParseIntPipe) speakerId: number) {
+  try {
+    console.log(`🔊 Consultando estado de volumen simulado para speaker ${speakerId}`);
+
+    // Respuesta simulada
+    return {
+      success: true,
+      data: {
+        speakerId,
+        currentVolume: 25, // Valor simulado
+        minVolume: 5,
+        maxVolume: 30,
+        volumePercent: Math.round((25 / 30) * 100),
+        audioPlaying: true,
+        mode: 'simulation',
+        lastUpdated: new Date().toISOString()
+      },
+      timestamp: new Date().toISOString()
+    };
+
+  } catch (error) {
+    console.error(`❌ Error obteniendo estado de volumen simulado:`, error.message);
+    
+    throw new InternalServerErrorException({
+      success: false,
+      message: 'Error fetching volume status',
+      error: error.message,
+      speakerId
+    });
+  }
+}
 
   // 🔊 Endpoints de conveniencia para incrementar/decrementar
   @Post('volume/:speakerId/increase')
