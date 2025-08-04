@@ -18,6 +18,7 @@ import { Esp32DataDto } from './dto/Esp32Data-dto';
 import { MonitorDataDto } from './dto/MonitorData-dto';
 import { StartSessionDto } from './dto/StartSession-dto';
 import { EndSessionDto } from './dto/EndSession-dto';
+import { VolumeControlDto } from './dto/VolumeControl-dto';
 
 @Controller('api/energy')
 export class Esp32DataController {
@@ -476,7 +477,152 @@ export class Esp32DataController {
       });
     }
   }
+
+
+
+  // 🔊 CONTROL DE VOLUMEN - Endpoint principal
+  @Post('volume/:speakerId')
+  @UsePipes(new ValidationPipe({ transform: true }))
+  async setVolume(
+    @Param('speakerId', ParseIntPipe) speakerId: number,
+    @Body() volumeData: VolumeControlDto
+  ) {
+    try {
+      console.log(`🔊 Comando de volumen recibido para speaker ${speakerId}:`, {
+        volume: volumeData.volume,
+        sessionId: volumeData.sessionId,
+        action: volumeData.action || 'set'
+      });
+
+      // Validar que el speaker existe
+      const speaker = await this.esp32DataService.getSpeakerById(speakerId);
+      if (!speaker) {
+        throw new NotFoundException(`Speaker ${speakerId} not found`);
+      }
+
+      // Validar rango de volumen
+      if (volumeData.volume < 5 || volumeData.volume > 30) {
+        throw new BadRequestException('Volume must be between 5 and 30');
+      }
+
+      // Verificar si hay sesión activa (opcional, pero recomendado)
+      if (volumeData.sessionId) {
+        const session = await this.esp32DataService.getSessionById(volumeData.sessionId);
+        if (!session || session.status !== 'ACTIVE') {
+          console.warn(`⚠️ Session ${volumeData.sessionId} not active, but allowing volume change`);
+        }
+      }
+
+      // Enviar comando al ESP32
+      const result = await this.esp32DataService.sendVolumeCommand(speakerId, volumeData);
+
+      return {
+        success: true,
+        message: 'Volume command sent successfully',
+        data: result,
+        timestamp: new Date().toISOString()
+      };
+
+    } catch (error) {
+      console.error(`❌ Error en comando de volumen para speaker ${speakerId}:`, error.message);
+      
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+      
+      throw new InternalServerErrorException({
+        success: false,
+        message: 'Error sending volume command',
+        error: error.message,
+        speakerId
+      });
+    }
+  }
+
+  // 🔊 Obtener estado actual del volumen
+  @Get('volume/:speakerId')
+  async getVolumeStatus(@Param('speakerId', ParseIntPipe) speakerId: number) {
+    try {
+      console.log(`🔊 Consultando estado de volumen para speaker ${speakerId}`);
+
+      // Validar que el speaker existe
+      const speaker = await this.esp32DataService.getSpeakerById(speakerId);
+      if (!speaker) {
+        throw new NotFoundException(`Speaker ${speakerId} not found`);
+      }
+
+      // Obtener estado del volumen desde el ESP32
+      const volumeStatus = await this.esp32DataService.getVolumeStatus(speakerId);
+
+      return {
+        success: true,
+        data: volumeStatus,
+        timestamp: new Date().toISOString()
+      };
+
+    } catch (error) {
+      console.error(`❌ Error obteniendo estado de volumen para speaker ${speakerId}:`, error.message);
+      
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      
+      throw new InternalServerErrorException({
+        success: false,
+        message: 'Error fetching volume status',
+        error: error.message,
+        speakerId
+      });
+    }
+  }
+
+  // 🔊 Endpoints de conveniencia para incrementar/decrementar
+  @Post('volume/:speakerId/increase')
+  async increaseVolume(@Param('speakerId', ParseIntPipe) speakerId: number) {
+    try {
+      // Obtener volumen actual
+      const currentStatus = await this.esp32DataService.getVolumeStatus(speakerId);
+      const newVolume = Math.min(currentStatus.currentVolume + 1, 30);
+      
+      return await this.setVolume(speakerId, {
+        volume: newVolume,
+        speakerId,
+        action: 'increase'
+      });
+    } catch (error) {
+      throw new InternalServerErrorException({
+        success: false,
+        message: 'Error increasing volume',
+        error: error.message
+      });
+    }
+  }
+
+  @Post('volume/:speakerId/decrease')
+  async decreaseVolume(@Param('speakerId', ParseIntPipe) speakerId: number) {
+    try {
+      // Obtener volumen actual
+      const currentStatus = await this.esp32DataService.getVolumeStatus(speakerId);
+      const newVolume = Math.max(currentStatus.currentVolume - 1, 5);
+      
+      return await this.setVolume(speakerId, {
+        volume: newVolume,
+        speakerId,
+        action: 'decrease'
+      });
+    } catch (error) {
+      throw new InternalServerErrorException({
+        success: false,
+        message: 'Error decreasing volume',
+        error: error.message
+      });
+    }
+  }
+
 }
+
+
+
 
 // Health check general del sistema
 @Controller('api')

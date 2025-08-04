@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { Decimal } from '@prisma/client/runtime/library';
 import { Esp32DataDto } from './dto/Esp32Data-dto';
 import { MonitorDataDto } from './dto/MonitorData-dto';
+import { VolumeControlDto } from './dto/VolumeControl-dto';
 
 @Injectable()
 export class Esp32DataService {
@@ -624,6 +625,247 @@ async endUsageSession(
       return false;
     }
   }
+
+
+  // 🔊 NUEVA FUNCIÓN: Enviar comando de volumen al ESP32
+  async sendVolumeCommand(speakerId: number, volumeData: VolumeControlDto): Promise<any> {
+    try {
+      // Obtener información del speaker (incluye IP si está disponible)
+      const speaker = await this.prisma.speaker.findUnique({
+        where: { id: speakerId }
+      });
+
+      if (!speaker) {
+        throw new NotFoundException(`Speaker ${speakerId} not found`);
+      }
+
+      // Construir URL del ESP32
+      // NOTA: Necesitas implementar cómo obtener la IP del ESP32
+      // Por ahora asumiremos que tienes una forma de obtenerla
+      const esp32Ip = await this.getESP32IP(speakerId);
+      
+      if (!esp32Ip) {
+        throw new BadRequestException(`Cannot reach ESP32 for speaker ${speakerId}. Speaker may be offline.`);
+      }
+
+      const esp32Url = `http://${esp32Ip}/volume`;
+      
+      console.log(`🔊 Enviando comando de volumen a ${esp32Url}:`, {
+        volume: volumeData.volume,
+        speakerId,
+        action: volumeData.action
+      });
+
+      // Preparar payload para el ESP32
+      const payload = {
+        volume: volumeData.volume,
+        speakerId: speakerId,
+        sessionId: volumeData.sessionId || null,
+        timestamp: new Date().toISOString(),
+        action: volumeData.action || 'set'
+      };
+
+      // Realizar request HTTP al ESP32
+      const response = await this.makeHTTPRequest(esp32Url, 'POST', payload, {
+        timeout: 5000,
+        retries: 2
+      });
+
+      if (response.success) {
+        console.log(`✅ Volumen cambiado exitosamente en speaker ${speakerId}: ${volumeData.volume}/30`);
+        
+        return {
+          speakerId,
+          previousVolume: response.previousVolume,
+          newVolume: response.newVolume,
+          timestamp: response.timestamp,
+          esp32Response: response
+        };
+      } else {
+        throw new Error(response.message || 'ESP32 reported failure');
+      }
+
+    } catch (error) {
+      console.error(`❌ Error enviando comando de volumen a speaker ${speakerId}:`, error.message);
+      throw error;
+    }
+  }
+
+  // 🔊 NUEVA FUNCIÓN: Obtener estado del volumen desde ESP32
+  async getVolumeStatus(speakerId: number): Promise<any> {
+    try {
+      const esp32Ip = await this.getESP32IP(speakerId);
+      
+      if (!esp32Ip) {
+        throw new BadRequestException(`Cannot reach ESP32 for speaker ${speakerId}`);
+      }
+
+      const esp32Url = `http://${esp32Ip}/volume`;
+      
+      console.log(`🔊 Consultando estado de volumen desde ${esp32Url}`);
+
+      const response = await this.makeHTTPRequest(esp32Url, 'GET', null, {
+        timeout: 3000,
+        retries: 1
+      });
+
+      if (response.success) {
+        return {
+          speakerId,
+          currentVolume: response.currentVolume,
+          minVolume: response.minVolume || 5,
+          maxVolume: response.maxVolume || 30,
+          volumePercent: response.volumePercent,
+          audioPlaying: response.audioPlaying,
+          lastUpdated: new Date().toISOString(),
+          esp32Response: response
+        };
+      } else {
+        throw new Error(response.message || 'ESP32 reported failure');
+      }
+
+    } catch (error) {
+      console.error(`❌ Error obteniendo estado de volumen de speaker ${speakerId}:`, error.message);
+      throw error;
+    }
+  }
+
+  // 🔊 FUNCIÓN HELPER: Obtener IP del ESP32
+  private async getESP32IP(speakerId: number): Promise<string | null> {
+    try {
+      // OPCIÓN 1: Si guardas la IP en la base de datos del speaker
+      const speaker = await this.prisma.speaker.findUnique({
+        where: { id: speakerId }
+      });
+
+      // Aquí necesitas implementar tu lógica específica
+      // Algunas opciones:
+      
+      // OPCIÓN A: IP fija por speaker ID (más simple)
+      const fixedIPs = {
+        1: '192.168.1.100',  // Speaker 1
+        2: '192.168.1.101',  // Speaker 2
+        // Agregar más según tus speakers
+      };
+      
+      if (fixedIPs[speakerId]) {
+        return fixedIPs[speakerId];
+      }
+
+      // OPCIÓN B: Buscar en sesión activa si guardas la IP ahí
+      const activeSession = await this.prisma.usageSession.findFirst({
+        where: {
+          speakerId,
+          status: 'ACTIVE'
+        }
+      });
+
+      // Si guardas la IP en metadata de la sesión:
+      // if (activeSession?.metadata && activeSession.metadata.esp32IP) {
+      //   return activeSession.metadata.esp32IP;
+      // }
+
+      // OPCIÓN C: Hacer ping a rango de IPs (menos eficiente)
+      // const discoveredIP = await this.discoverESP32IP(speakerId);
+      // return discoveredIP;
+
+      console.warn(`⚠️ No se pudo determinar IP para speaker ${speakerId}`);
+      return null;
+
+    } catch (error) {
+      console.error(`❌ Error obteniendo IP de ESP32 para speaker ${speakerId}:`, error.message);
+      return null;
+    }
+  }
+
+  // 🔊 FUNCIÓN HELPER: Realizar request HTTP genérico
+  private async makeHTTPRequest(
+    url: string, 
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE', 
+    data?: any,
+    options: { timeout?: number; retries?: number } = {}
+  ): Promise<any> {
+    const { timeout = 5000, retries = 1 } = options;
+    
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        console.log(`📡 HTTP ${method} ${url} (intento ${attempt + 1}/${retries + 1})`);
+        
+        // Aquí necesitas usar tu cliente HTTP preferido
+        // Ejemplo usando fetch (si está disponible) o axios
+        
+        const requestOptions: any = {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          timeout
+        };
+
+        if (data && (method === 'POST' || method === 'PUT')) {
+          requestOptions.body = JSON.stringify(data);
+        }
+
+        // NOTA: Necesitas instalar y configurar tu cliente HTTP
+        // Por ejemplo: npm install axios
+        // const axios = require('axios');
+        // const response = await axios(url, requestOptions);
+        
+        // PLACEHOLDER - Reemplazar con tu implementación HTTP real
+        const response = await this.httpRequest(url, requestOptions);
+        
+        if (response.status >= 200 && response.status < 300) {
+          const responseData = typeof response.data === 'string' 
+            ? JSON.parse(response.data) 
+            : response.data;
+          
+          console.log(`✅ HTTP ${method} exitoso:`, responseData);
+          return responseData;
+        } else {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+      } catch (error) {
+        console.error(`❌ Error en HTTP ${method} (intento ${attempt + 1}):`, error.message);
+        
+        if (attempt === retries) {
+          throw new Error(`Failed to ${method} ${url} after ${retries + 1} attempts: ${error.message}`);
+        }
+        
+        // Esperar antes del siguiente intento
+        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+      }
+    }
+  }
+
+  // 🔊 FUNCIÓN PLACEHOLDER: Implementar tu cliente HTTP
+  private async httpRequest(url: string, options: any): Promise<any> {
+    // IMPLEMENTAR CON TU CLIENTE HTTP PREFERIDO
+    // Ejemplo con axios:
+    /*
+    const axios = require('axios');
+    
+    if (options.method === 'GET') {
+      return await axios.get(url, { timeout: options.timeout });
+    } else if (options.method === 'POST') {
+      return await axios.post(url, JSON.parse(options.body), { 
+        headers: options.headers,
+        timeout: options.timeout 
+      });
+    }
+    */
+    
+    // PLACEHOLDER - REEMPLAZAR CON IMPLEMENTACIÓN REAL
+    throw new Error('HTTP client not implemented - please configure axios or your preferred HTTP client');
+  }
+
+  // 🔊 FUNCIÓN HELPER: Obtener speaker por ID
+  async getSpeakerById(speakerId: number) {
+    return await this.prisma.speaker.findUnique({
+      where: { id: speakerId }
+    });
+  }
+
 
   // 📊 Obtener información del caché para debugging
   getCacheInfo() {
