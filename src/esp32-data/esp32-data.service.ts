@@ -323,7 +323,7 @@ async endUsageSession(
   finalBatteryPercentage: number,
   esp32Data?: {
     totalMeasurementsSent?: number;
-    totalConsumed_mAh?: number;
+    totalConsumed_mAh?: number;  // ← Este es el campo clave
     sessionDurationSeconds?: number;
     avgCurrent_mA?: number;
     avgVoltage_V?: number;
@@ -360,8 +360,33 @@ async endUsageSession(
 
     console.log(`🔋 Finalizando sesión: Batería inicial ${Number(session.initialBatteryPercentage)}% → Final ${finalBatteryPercentage}%`);
     console.log(`🔋 Batería consumida: ${batteryConsumed.toFixed(2)}%`);
+    
+    // ✅ LOGGING MEJORADO para debug
+    console.log(`📊 Datos del ESP32 recibidos:`, {
+      totalConsumed_mAh: esp32Data?.totalConsumed_mAh,
+      avgCurrent_mA: esp32Data?.avgCurrent_mA,
+      avgVoltage_V: esp32Data?.avgVoltage_V,
+      avgPower_mW: esp32Data?.avgPower_mW,
+      totalMeasurements: esp32Data?.totalMeasurementsSent,
+      sessionDurationSeconds: esp32Data?.sessionDurationSeconds
+    });
 
-    // Calcular estadísticas desde los datos del ESP32
+    // ✅ VALIDAR que los datos del ESP32 son válidos
+    if (!esp32Data?.totalConsumed_mAh || esp32Data.totalConsumed_mAh <= 0) {
+      console.warn(`⚠️ totalConsumed_mAh inválido: ${esp32Data?.totalConsumed_mAh}, usando datos de caché si están disponibles`);
+      
+      // Intentar obtener desde caché
+      const cache = this.realtimeDataCache.get(sessionId);
+      if (cache && cache.latestData.total_consumed_mAh > 0) {
+        console.log(`🗄️ Usando totalConsumed desde caché: ${cache.latestData.total_consumed_mAh} mAh`);
+        esp32Data = {
+          ...esp32Data,
+          totalConsumed_mAh: cache.latestData.total_consumed_mAh
+        };
+      }
+    }
+
+    // ✅ CÁLCULO CORREGIDO de estadísticas
     const stats = this.calculateStatsFromESP32Data(esp32Data, durationMinutes);
 
     // Actualizar sesión como completada
@@ -372,8 +397,9 @@ async endUsageSession(
         finalBatteryPercentage: new Decimal(finalBatteryPercentage),
         status: 'COMPLETED',
         metadata: {
+          // ✅ GUARDAR DATOS ORIGINALES DEL ESP32
           totalMeasurementsSent: esp32Data?.totalMeasurementsSent || 0,
-          totalConsumed_mAh: esp32Data?.totalConsumed_mAh || 0,
+          totalConsumed_mAh: esp32Data?.totalConsumed_mAh || 0,  // ← VALOR CLAVE
           reportedDurationSeconds: esp32Data?.sessionDurationSeconds || 0,
           actualDurationMinutes: durationMinutes,
           avgCurrent_mA: esp32Data?.avgCurrent_mA || 0,
@@ -385,7 +411,7 @@ async endUsageSession(
       }
     });
 
-    // Crear registro en historial con datos reales del ESP32
+    // ✅ CREAR HISTORIAL CON MAPEO CORRECTO
     const historyRecord = await this.prisma.history.create({
       data: {
         usageSessionId: sessionId,
@@ -397,27 +423,33 @@ async endUsageSession(
         endDate: endTime,
         durationMinutes,
         
-        // Usar datos reales del ESP32
-        avgVoltageHours: new Decimal(stats.avgVoltage || 0),
-        avgWattsHours: new Decimal(stats.avgPower || 0),
-        avgAmpereHours: new Decimal(stats.avgCurrent || 0),
+        // ✅ MAPEO CORRECTO de promedios (Horas para compatibilidad)
+        avgVoltageHours: new Decimal(esp32Data?.avgVoltage_V || 0),
+        avgWattsHours: new Decimal((esp32Data?.avgPower_mW || 0) / 1000), // mW → W
+        avgAmpereHours: new Decimal((esp32Data?.avgCurrent_mA || 0) / 1000), // mA → A
+        
+        // ✅ CÁLCULO CORRECTO de totales
         totalVoltageHours: new Decimal(stats.totalVoltage || 0),
         totalWattsHours: new Decimal(stats.totalPower || 0),
-        totalAmpereHours: new Decimal(stats.totalCurrent || 0),
+        totalAmpereHours: new Decimal((esp32Data?.totalConsumed_mAh || 0) / 1000), // mAh → Ah
+        
+        // ✅ AGREGAR CAMPO ESPECÍFICO PARA mAh (si existe en el schema)
+        // totalConsumed_mAh: new Decimal(esp32Data?.totalConsumed_mAh || 0),
         
         initialBatteryPercentage: session.initialBatteryPercentage || new Decimal(0),
         finalBatteryPercentage: new Decimal(finalBatteryPercentage),
         batteryConsumed: new Decimal(batteryConsumed),
         
-        // Guardar datos completos del ESP32
+        // ✅ GUARDAR DATOS COMPLETOS DEL ESP32 para debugging
         esp32Data: {
           totalMeasurementsSent: esp32Data?.totalMeasurementsSent || 0,
-          totalConsumed_mAh: esp32Data?.totalConsumed_mAh || 0,
+          totalConsumed_mAh: esp32Data?.totalConsumed_mAh || 0,  // ← VALOR CLAVE PRESERVADO
           reportedDurationSeconds: esp32Data?.sessionDurationSeconds || 0,
           avgCurrent_mA: esp32Data?.avgCurrent_mA || 0,
           avgVoltage_V: esp32Data?.avgVoltage_V || 0,
           avgPower_mW: esp32Data?.avgPower_mW || 0,
-          peakPower_mW: esp32Data?.peakPower_mW || 0
+          peakPower_mW: esp32Data?.peakPower_mW || 0,
+          calculatedStats: stats  // ← Agregar stats calculados para debug
         }
       }
     });
@@ -427,7 +459,7 @@ async endUsageSession(
       where: { id: session.speakerId },
       data: { 
         state: false,
-        batteryPercentage: new Decimal(finalBatteryPercentage), // 🔋 PERSISTIR BATERÍA
+        batteryPercentage: new Decimal(finalBatteryPercentage),
         updatedAt: new Date()
       }
     });
@@ -436,8 +468,8 @@ async endUsageSession(
     this.clearRealtimeCache(sessionId);
 
     console.log(`✅ Sesión ${sessionId} finalizada y guardada en historial`);
+    console.log(`🔋 Total consumido guardado: ${esp32Data?.totalConsumed_mAh || 0} mAh`);
     console.log(`🔋 Batería final persistida: ${finalBatteryPercentage}% para speaker ${session.speakerId}`);
-    console.log(`📊 Duración: ${durationMinutes}min, Batería consumida: ${batteryConsumed.toFixed(1)}%`);
 
     return {
       session: updatedSession,
@@ -446,7 +478,8 @@ async endUsageSession(
       durationMinutes,
       batteryConsumed,
       esp32Data,
-      persistedBatteryLevel: finalBatteryPercentage
+      persistedBatteryLevel: finalBatteryPercentage,
+      totalConsumedMah: esp32Data?.totalConsumed_mAh || 0  // ← Para confirmación
     };
   } catch (error) {
     console.error('Error ending usage session:', error);
@@ -455,39 +488,47 @@ async endUsageSession(
 }
 
   // Calcular estadísticas reales desde datos del ESP32
-  private calculateStatsFromESP32Data(esp32Data: any, durationMinutes: number) {
-    if (!esp32Data) {
-      return {
-        avgVoltage: 0,
-        avgCurrent: 0,
-        avgPower: 0,
-        totalVoltage: 0,
-        totalCurrent: 0,
-        totalPower: 0
-      };
-    }
-
-    // Usar datos directos del ESP32
-    const avgCurrent = esp32Data.avgCurrent_mA || 0;
-    const avgVoltage = esp32Data.avgVoltage_V || 0;
-    const avgPower = esp32Data.avgPower_mW || 0;
-    const totalConsumed = esp32Data.totalConsumed_mAh || 0;
-
-    // Calcular totales basados en promedios y duración
-    const durationHours = durationMinutes / 60;
-    const totalCurrent = totalConsumed; // mAh
-    const totalVoltage = avgVoltage * durationHours; // V⋅h
-    const totalPower = avgPower * durationHours / 1000; // W⋅h (convertir de mW⋅h)
-
+ private calculateStatsFromESP32Data(esp32Data: any, durationMinutes: number) {
+  console.log(`📊 Calculando estadísticas desde ESP32:`, esp32Data);
+  
+  if (!esp32Data) {
+    console.warn('⚠️ No hay datos del ESP32, devolviendo valores en cero');
     return {
-      avgVoltage,
-      avgCurrent,
-      avgPower,
-      totalVoltage,
-      totalCurrent,
-      totalPower
+      avgVoltage: 0,
+      avgCurrent: 0,
+      avgPower: 0,
+      totalVoltage: 0,
+      totalCurrent: 0,
+      totalPower: 0,
+      totalConsumed_mAh: 0
     };
   }
+
+  // ✅ USAR DATOS DIRECTOS DEL ESP32
+  const avgCurrent = esp32Data.avgCurrent_mA || 0;
+  const avgVoltage = esp32Data.avgVoltage_V || 0;
+  const avgPower = esp32Data.avgPower_mW || 0;
+  const totalConsumed = esp32Data.totalConsumed_mAh || 0;  // ← VALOR CLAVE
+
+  // ✅ CALCULAR TOTALES basados en promedios y duración
+  const durationHours = durationMinutes / 60;
+  const totalCurrent = totalConsumed; // Ya está en mAh desde el ESP32
+  const totalVoltage = avgVoltage * durationHours; // V⋅h
+  const totalPower = (avgPower * durationHours) / 1000; // W⋅h (convertir de mW⋅h)
+
+  const calculatedStats = {
+    avgVoltage,
+    avgCurrent,
+    avgPower,
+    totalVoltage,
+    totalCurrent,
+    totalPower,
+    totalConsumed_mAh: totalConsumed  // ← AGREGAR CAMPO ESPECÍFICO
+  };
+
+  console.log(`📊 Estadísticas calculadas:`, calculatedStats);
+  return calculatedStats;
+}
 
   // 🗑️ Limpiar caché de sesión específica
   async clearRealtimeCache(sessionId: number): Promise<void> {
